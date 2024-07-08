@@ -141,6 +141,25 @@ where
         ciphertext: Vec<u8>,
     ) -> Result<(), StreamCipherError>;
 
+    /// Returns an additive share of the keystream block for the given explicit nonce and counter.
+    ///
+    /// # Arguments
+    ///
+    /// * `explicit_nonce` - The explicit nonce to use for the keystream block.
+    /// * `ctr` - The counter to use for the keystream block.
+    async fn share_keystream_block(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<Vec<u8>, StreamCipherError>;
+}
+
+/// A trait for ZK stream ciphers.
+#[async_trait]
+pub trait ZkCipher<Cipher>: Send + Sync
+where
+    Cipher: cipher::CtrCircuit,
+{
     /// Locally decrypts the provided ciphertext and then proves in ZK to the other party(s) that the
     /// plaintext is correct.
     ///
@@ -170,18 +189,6 @@ where
         explicit_nonce: Vec<u8>,
         ciphertext: Vec<u8>,
     ) -> Result<(), StreamCipherError>;
-
-    /// Returns an additive share of the keystream block for the given explicit nonce and counter.
-    ///
-    /// # Arguments
-    ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream block.
-    /// * `ctr` - The counter to use for the keystream block.
-    async fn share_keystream_block(
-        &mut self,
-        explicit_nonce: Vec<u8>,
-        ctr: usize,
-    ) -> Result<Vec<u8>, StreamCipherError>;
 }
 
 #[cfg(test)]

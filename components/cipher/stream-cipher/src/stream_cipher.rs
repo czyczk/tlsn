@@ -11,7 +11,7 @@ use crate::{
     circuit::build_array_xor,
     config::{is_valid_mode, ExecutionMode, InputText, StreamCipherConfig},
     keystream::KeyStream,
-    StreamCipher, StreamCipherError,
+    StreamCipher, StreamCipherError, ZkCipher,
 };
 
 /// An MPC stream cipher.
@@ -558,6 +558,48 @@ where
     }
 
     #[instrument(level = "debug", skip_all, err)]
+    async fn share_keystream_block(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<Vec<u8>, StreamCipherError> {
+        let EncodedKeyAndIv { key, iv } = self
+            .state
+            .encoded_key_iv
+            .as_ref()
+            .ok_or_else(|| StreamCipherError::key_not_set())?;
+
+        let key_block = self
+            .state
+            .keystream
+            .compute(
+                &mut self.thread,
+                ExecutionMode::Mpc,
+                key,
+                iv,
+                explicit_nonce,
+                ctr,
+                C::BLOCK_LEN,
+            )
+            .await?;
+
+        let share = self
+            .decode_shared(key_block)
+            .await?
+            .try_into()
+            .expect("key block is array");
+
+        Ok(share)
+    }
+}
+
+#[async_trait]
+impl<C, E> ZkCipher<C> for MpcStreamCipher<C, E>
+where
+    C: CtrCircuit,
+    E: Thread + Execute + Load + Prove + Verify + Decode + DecodePrivate + Send + Sync + 'static,
+{
+    #[instrument(level = "debug", skip_all, err)]
     async fn prove_plaintext(
         &mut self,
         explicit_nonce: Vec<u8>,
@@ -631,40 +673,5 @@ where
         self.verify(ciphertext_ref, ciphertext.into()).await?;
 
         Ok(())
-    }
-
-    #[instrument(level = "debug", skip_all, err)]
-    async fn share_keystream_block(
-        &mut self,
-        explicit_nonce: Vec<u8>,
-        ctr: usize,
-    ) -> Result<Vec<u8>, StreamCipherError> {
-        let EncodedKeyAndIv { key, iv } = self
-            .state
-            .encoded_key_iv
-            .as_ref()
-            .ok_or_else(|| StreamCipherError::key_not_set())?;
-
-        let key_block = self
-            .state
-            .keystream
-            .compute(
-                &mut self.thread,
-                ExecutionMode::Mpc,
-                key,
-                iv,
-                explicit_nonce,
-                ctr,
-                C::BLOCK_LEN,
-            )
-            .await?;
-
-        let share = self
-            .decode_shared(key_block)
-            .await?
-            .try_into()
-            .expect("key block is array");
-
-        Ok(share)
     }
 }
