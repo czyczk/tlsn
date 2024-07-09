@@ -1,7 +1,8 @@
 use crate::{CtrCircuit, KeyStream, StreamCipherError};
 use async_trait::async_trait;
+use mpz_circuits::Circuit;
 use mpz_garble::{value::ValueRef, Decode, DecodePrivate, Execute, Load, Thread};
-use std::{collections::VecDeque, marker::PhantomData};
+use std::{collections::VecDeque, marker::PhantomData, sync::Arc};
 use tracing::instrument;
 use utils::id::NestedId;
 
@@ -43,7 +44,48 @@ where
             .ok_or_else(|| StreamCipherError::key_not_set())
     }
 
-    fn define_vars(&mut self, count: usize) -> Result<BlockVars, StreamCipherError> {
+    async fn preprocess_shared(&mut self, len: usize) -> Result<(), StreamCipherError> {}
+
+    async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError> {
+        self.preprocess_for(C::circuit(), len).await
+    }
+
+    async fn preprocess_for(
+        &mut self,
+        circuit: Arc<Circuit>,
+        len: usize,
+    ) -> Result<(), StreamCipherError> {
+        let key = self.key()?;
+        let iv = self.iv()?;
+
+        let block_count = (len / C::BLOCK_LEN) + (len % C::BLOCK_LEN != 0) as usize;
+        let vars = self.define_vars(block_count, circuit)?;
+
+        let calls = vars
+            .iter()
+            .map(|(circuit, block, nonce, ctr)| {
+                (
+                    circuit,
+                    vec![key.clone(), iv.clone(), nonce.clone(), ctr.clone()],
+                    vec![block.clone()],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (circ, inputs, outputs) in calls {
+            self.thread.load(circ.clone(), &inputs, &outputs).await?;
+        }
+
+        self.preprocessed.extend(vars);
+
+        Ok(())
+    }
+
+    fn define_vars(
+        &mut self,
+        count: usize,
+        circuit: Arc<Circuit>,
+    ) -> Result<BlockVars, StreamCipherError> {
         let mut vars = BlockVars::default();
         for _ in 0..count {
             let block_id = self.block_counter.increment_in_place();
@@ -55,6 +97,7 @@ where
                 .thread
                 .new_public_input::<[u8; 4]>(&block_id.append_string("ctr").to_string())?;
 
+            vars.circuits.push_back(circuit.clone());
             vars.blocks.push_back(block);
             vars.nonces.push_back(nonce);
             vars.ctrs.push_back(ctr);
@@ -85,9 +128,9 @@ where
 
         let calls = vars
             .iter()
-            .map(|(block, nonce, ctr)| {
+            .map(|(circuit, block, nonce, ctr)| {
                 (
-                    C::circuit(),
+                    circuit,
                     vec![key.clone(), iv.clone(), nonce.clone(), ctr.clone()],
                     vec![block.clone()],
                 )
@@ -95,7 +138,7 @@ where
             .collect::<Vec<_>>();
 
         for (circ, inputs, outputs) in calls {
-            self.thread.load(circ, &inputs, &outputs).await?;
+            self.thread.load(circ.clone(), &inputs, &outputs).await?;
         }
 
         self.preprocessed.extend(vars);
@@ -134,7 +177,7 @@ where
 
         let mut calls = Vec::with_capacity(vars.len());
         let mut inputs = Vec::with_capacity(vars.len() * 4);
-        for (i, (block, nonce_ref, ctr_ref)) in vars.iter().enumerate() {
+        for (i, (_, block, nonce_ref, ctr_ref)) in vars.iter().enumerate() {
             self.thread.assign(nonce_ref, explicit_nonce)?;
             self.thread
                 .assign(ctr_ref, ((start_ctr + i) as u32).to_be_bytes())?;
@@ -152,7 +195,7 @@ where
             ));
         }
 
-        let keystream = self.thread.array_from_values(&vars.flatten(len))?;
+        let keystream = self.thread.array_from_values(&vars.blocks(len))?;
         // TODO: We need to return more here than just the keysteam, if we want to separate the
         // execution.
         Ok(keystream)
@@ -170,9 +213,10 @@ where
 
 #[derive(Default)]
 struct BlockVars {
-    blocks: VecDeque<ValueRef>,
+    circuits: VecDeque<Arc<Circuit>>,
     nonces: VecDeque<ValueRef>,
     ctrs: VecDeque<ValueRef>,
+    blocks: VecDeque<ValueRef>,
 }
 
 impl BlockVars {
@@ -185,32 +229,36 @@ impl BlockVars {
     }
 
     fn drain(&mut self, count: usize) -> BlockVars {
-        let blocks = self.blocks.drain(0..count).collect();
+        let circuits = self.circuits.drain(0..count).collect();
         let nonces = self.nonces.drain(0..count).collect();
         let ctrs = self.ctrs.drain(0..count).collect();
+        let blocks = self.blocks.drain(0..count).collect();
 
         BlockVars {
-            blocks,
+            circuits,
             nonces,
             ctrs,
+            blocks,
         }
     }
 
     fn extend(&mut self, vars: BlockVars) {
+        self.circuits.extend(vars.circuits);
         self.blocks.extend(vars.blocks);
         self.nonces.extend(vars.nonces);
         self.ctrs.extend(vars.ctrs);
     }
 
-    fn iter(&self) -> impl Iterator<Item = (&ValueRef, &ValueRef, &ValueRef)> {
-        self.blocks
+    fn iter(&self) -> impl Iterator<Item = (&Arc<Circuit>, &ValueRef, &ValueRef, &ValueRef)> {
+        self.circuits
             .iter()
             .zip(self.nonces.iter())
             .zip(self.ctrs.iter())
-            .map(|((block, nonce), ctr)| (block, nonce, ctr))
+            .zip(self.blocks.iter())
+            .map(|(((circuit, block), nonce), ctr)| (circuit, block, nonce, ctr))
     }
 
-    fn flatten(&self, len: usize) -> Vec<ValueRef> {
+    fn blocks(&self, len: usize) -> Vec<ValueRef> {
         self.blocks
             .iter()
             .flat_map(|block| block.iter())
