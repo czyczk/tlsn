@@ -160,11 +160,12 @@ pub trait KeyStream: Send + Sync {
     /// Preprocesses the keystream for the given number of bytes.
     async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError>;
 
-    /// Returns a counter block for the keystream.
-    async fn compute_keystream(
+    /// Returns the key stream references for the provided values.
+    async fn setup_keystream(
         &mut self,
         explicit_nonce: Vec<u8>,
-        ctr: usize,
+        start_ctr: usize,
+        len: usize,
     ) -> Result<ValueRef, StreamCipherError>;
 
     /// Returns an additive share of the keystream block for the given explicit nonce and counter.
@@ -173,7 +174,7 @@ pub trait KeyStream: Send + Sync {
     ///
     /// * `explicit_nonce` - The explicit nonce to use for the keystream block.
     /// * `ctr` - The counter to use for the keystream block.
-    async fn share_keystream(
+    async fn share_zero_block(
         &mut self,
         explicit_nonce: Vec<u8>,
         ctr: usize,

@@ -58,6 +58,13 @@ impl StreamCipherError {
             source: Some("key not set".into()),
         }
     }
+
+    pub(crate) fn iv_not_set<C: CtrCircuit>() -> Self {
+        Self {
+            kind: ErrorKind::Iv,
+            source: Some(format!("iv not set").into()),
+        }
+    }
 }
 
 #[derive(Debug)]
