@@ -11,7 +11,7 @@ use crate::{
     circuit::build_array_xor,
     config::{is_valid_mode, ExecutionMode, InputText, StreamCipherConfig},
     keystream::KeyStream,
-    StreamCipher, StreamCipherError, ZkCipher,
+    StreamCipher, StreamCipherError, ZkProve,
 };
 
 /// An MPC stream cipher.
@@ -27,8 +27,8 @@ where
 }
 
 struct State<C> {
-    /// Encoded key and IV for the cipher.
-    encoded_key_iv: Option<EncodedKeyAndIv>,
+    /// Encoded key.
+    encoded_key: Option<ValueRef>,
     /// Key and IV for the cipher.
     key_iv: Option<KeyAndIv>,
     /// Keystream state.
@@ -42,12 +42,6 @@ struct State<C> {
 }
 
 opaque_debug::implement!(State<C>);
-
-#[derive(Clone)]
-struct EncodedKeyAndIv {
-    key: ValueRef,
-    iv: ValueRef,
-}
 
 #[derive(Clone)]
 struct KeyAndIv {
@@ -594,7 +588,7 @@ where
 }
 
 #[async_trait]
-impl<C, E> ZkCipher<C> for MpcStreamCipher<C, E>
+impl<C, E> ZkProve<C> for MpcStreamCipher<C, E>
 where
     C: CtrCircuit,
     E: Thread + Execute + Load + Prove + Verify + Decode + DecodePrivate + Send + Sync + 'static,

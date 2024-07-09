@@ -20,7 +20,7 @@ mod cipher;
 mod circuit;
 mod config;
 pub(crate) mod error;
-pub(crate) mod keystream;
+mod keystream;
 mod stream_cipher;
 
 pub use self::cipher::{Aes128Ctr, CtrCircuit};
@@ -33,47 +33,20 @@ use mpz_garble::value::ValueRef;
 
 /// A trait for MPC stream ciphers.
 #[async_trait]
-pub trait StreamCipher<Cipher>: Send + Sync
-where
-    Cipher: cipher::CtrCircuit,
-{
-    /// Sets the key and iv for the stream cipher.
-    fn set_key(&mut self, key: ValueRef, iv: ValueRef);
-
-    /// Decodes the key for the stream cipher, revealing it to this party.
-    async fn decode_key_private(&mut self) -> Result<(), StreamCipherError>;
-
-    /// Decodes the key for the stream cipher, revealing it to the other party(s).
-    async fn decode_key_blind(&mut self) -> Result<(), StreamCipherError>;
-
-    /// Sets the transcript id
-    ///
-    /// The stream cipher assigns unique identifiers to each byte of plaintext
-    /// during encryption and decryption.
-    ///
-    /// For example, if the transcript id is set to `foo`, then the first byte will
-    /// be assigned the id `foo/0`, the second byte `foo/1`, and so on.
-    ///
-    /// Each transcript id has an independent counter.
-    ///
-    /// # Note
-    ///
-    /// The state of a transcript counter is preserved between calls to `set_transcript_id`.
-    fn set_transcript_id(&mut self, id: &str);
-
-    /// Preprocesses the keystream for the given number of bytes.
-    async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError>;
+pub trait StreamCipher: Send + Sync {
+    /// Sets the key for the stream cipher.
+    fn set_key(&mut self, key: ValueRef);
 
     /// Applies the keystream to the given plaintext, where all parties
     /// provide the plaintext as an input.
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `plaintext` - The message to apply the keystream to.
     async fn encrypt_public(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         plaintext: Vec<u8>,
     ) -> Result<Vec<u8>, StreamCipherError>;
 
@@ -82,11 +55,11 @@ where
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `plaintext` - The message to apply the keystream to.
     async fn encrypt_private(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         plaintext: Vec<u8>,
     ) -> Result<Vec<u8>, StreamCipherError>;
 
@@ -94,11 +67,11 @@ where
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `len` - The length of the plaintext provided by another party.
     async fn encrypt_blind(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         len: usize,
     ) -> Result<Vec<u8>, StreamCipherError>;
 
@@ -107,11 +80,11 @@ where
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `ciphertext` - The ciphertext to decrypt.
     async fn decrypt_public(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         ciphertext: Vec<u8>,
     ) -> Result<Vec<u8>, StreamCipherError>;
 
@@ -120,11 +93,11 @@ where
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `ciphertext` - The ciphertext to decrypt.
     async fn decrypt_private(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         ciphertext: Vec<u8>,
     ) -> Result<Vec<u8>, StreamCipherError>;
 
@@ -133,33 +106,18 @@ where
     ///
     /// # Arguments
     ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream.
+    /// * `keystream` - The keystream to use for this block.
     /// * `ciphertext` - The ciphertext to decrypt.
     async fn decrypt_blind(
         &mut self,
-        explicit_nonce: Vec<u8>,
+        keystream: ValueRef,
         ciphertext: Vec<u8>,
     ) -> Result<(), StreamCipherError>;
-
-    /// Returns an additive share of the keystream block for the given explicit nonce and counter.
-    ///
-    /// # Arguments
-    ///
-    /// * `explicit_nonce` - The explicit nonce to use for the keystream block.
-    /// * `ctr` - The counter to use for the keystream block.
-    async fn share_keystream_block(
-        &mut self,
-        explicit_nonce: Vec<u8>,
-        ctr: usize,
-    ) -> Result<Vec<u8>, StreamCipherError>;
 }
 
-/// A trait for ZK stream ciphers.
+/// Zk Proving for knowledge of plaintext which encrypts to a ciphertext.
 #[async_trait]
-pub trait ZkCipher<Cipher>: Send + Sync
-where
-    Cipher: cipher::CtrCircuit,
-{
+pub trait ZkProve: Send + Sync {
     /// Locally decrypts the provided ciphertext and then proves in ZK to the other party(s) that the
     /// plaintext is correct.
     ///
@@ -189,6 +147,34 @@ where
         explicit_nonce: Vec<u8>,
         ciphertext: Vec<u8>,
     ) -> Result<(), StreamCipherError>;
+}
+
+#[async_trait]
+pub trait KeyStream: Send + Sync {
+    /// Sets iv for the keystream.
+    fn set_iv(&mut self, iv: ValueRef);
+
+    /// Preprocesses the keystream for the given number of bytes.
+    async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError>;
+
+    /// Returns a counter block for the keystream.
+    async fn compute_keystream(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<ValueRef, StreamCipherError>;
+
+    /// Returns an additive share of the keystream block for the given explicit nonce and counter.
+    ///
+    /// # Arguments
+    ///
+    /// * `explicit_nonce` - The explicit nonce to use for the keystream block.
+    /// * `ctr` - The counter to use for the keystream block.
+    async fn share_keystream(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<Vec<u8>, StreamCipherError>;
 }
 
 #[cfg(test)]
