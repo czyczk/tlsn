@@ -1,15 +1,18 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
+use async_trait::async_trait;
 use mpz_garble::{
     value::ValueRef, Decode, DecodePrivate, Execute, Load, Memory, Prove, Thread, Verify,
 };
 use tracing::instrument;
 use utils::id::NestedId;
 
-use crate::{config::ExecutionMode, CtrCircuit, StreamCipherError};
+use crate::{config::ExecutionMode, CtrCircuit, KeyStream, StreamCipherError};
 
-pub(crate) struct KeyStream<C, E> {
+pub(crate) struct MpcKeyStream<C, E> {
     thread: E,
+    key: Option<ValueRef>,
+    iv: Option<ValueRef>,
     block_counter: NestedId,
     preprocessed: BlockVars,
     _pd: PhantomData<C>,
@@ -68,13 +71,16 @@ impl BlockVars {
     }
 }
 
-impl<C: CtrCircuit, E> KeyStream<C, E>
+impl<C, E> MpcKeyStream<C, E>
 where
+    C: CtrCircuit,
     E: Thread + Load + Execute + Decode + DecodePrivate + Send + Sync,
 {
     pub(crate) fn new(id: &str, thread: E) -> Self {
         let block_counter = NestedId::new(id).append_counter();
         Self {
+            key: None,
+            iv: None,
             thread,
             block_counter,
             preprocessed: BlockVars::default(),
@@ -100,39 +106,6 @@ where
         }
 
         Ok(vars)
-    }
-
-    #[instrument(level = "debug", skip_all, err)]
-    pub(crate) async fn preprocess<T>(
-        &mut self,
-        key: &ValueRef,
-        iv: &ValueRef,
-        len: usize,
-    ) -> Result<(), StreamCipherError>
-    where
-        T: Thread + Memory + Load + Send + 'static,
-    {
-        let block_count = (len / C::BLOCK_LEN) + (len % C::BLOCK_LEN != 0) as usize;
-        let vars = self.define_vars(block_count)?;
-
-        let calls = vars
-            .iter()
-            .map(|(block, nonce, ctr)| {
-                (
-                    C::circuit(),
-                    vec![key.clone(), iv.clone(), nonce.clone(), ctr.clone()],
-                    vec![block.clone()],
-                )
-            })
-            .collect::<Vec<_>>();
-
-        for (circ, inputs, outputs) in calls {
-            self.thread.load(circ, &inputs, &outputs).await?;
-        }
-
-        self.preprocessed.extend(vars);
-
-        Ok(())
     }
 
     #[instrument(level = "debug", skip_all, err)]
@@ -211,5 +184,66 @@ where
         let keystream = thread.array_from_values(&vars.flatten(len))?;
 
         Ok(keystream)
+    }
+}
+
+#[async_trait]
+impl<C, E> KeyStream for MpcKeyStream<C, E>
+where
+    C: CtrCircuit,
+    E: Thread + Load + Execute + Decode + DecodePrivate + Send + Sync,
+{
+    fn set_key_and_iv(&mut self, key: ValueRef, iv: ValueRef) {
+        self.key = Some(key);
+        self.iv = Some(iv);
+    }
+
+    #[instrument(level = "debug", skip_all, err)]
+    async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError> {
+        // TODO: Properly handle errors
+        let Some(key) = self.key.clone() else {
+            panic!("Key not set");
+        };
+        let Some(ref iv) = self.iv.clone() else {
+            panic!("Iv not set");
+        };
+
+        let block_count = (len / C::BLOCK_LEN) + (len % C::BLOCK_LEN != 0) as usize;
+        let vars = self.define_vars(block_count)?;
+
+        let calls = vars
+            .iter()
+            .map(|(block, nonce, ctr)| {
+                (
+                    C::circuit(),
+                    vec![key.clone(), iv.clone(), nonce.clone(), ctr.clone()],
+                    vec![block.clone()],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (circ, inputs, outputs) in calls {
+            self.thread.load(circ, &inputs, &outputs).await?;
+        }
+
+        self.preprocessed.extend(vars);
+
+        Ok(())
+    }
+
+    async fn compute_keystream(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<ValueRef, StreamCipherError> {
+        todo!()
+    }
+
+    async fn share_keystream(
+        &mut self,
+        explicit_nonce: Vec<u8>,
+        ctr: usize,
+    ) -> Result<Vec<u8>, StreamCipherError> {
+        todo!()
     }
 }

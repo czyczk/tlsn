@@ -66,7 +66,7 @@ impl<Ctx: Context> Aead for MpcAesGcm<Ctx> {
     #[instrument(level = "info", skip_all, err)]
     async fn set_key(&mut self, key: ValueRef, iv: ValueRef) -> Result<(), AesGcmError> {
         self.aes_block.set_key(key.clone());
-        self.aes_ctr.set_key(key, iv);
+        self.aes_ctr.set_key(key);
 
         Ok(())
     }

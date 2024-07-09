@@ -37,6 +37,9 @@ pub trait StreamCipher: Send + Sync {
     /// Sets the key for the stream cipher.
     fn set_key(&mut self, key: ValueRef);
 
+    /// Preprocesses the circuits for the given number of blocks.
+    async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError>;
+
     /// Applies the keystream to the given plaintext, where all parties
     /// provide the plaintext as an input.
     ///
@@ -152,7 +155,7 @@ pub trait ZkProve: Send + Sync {
 #[async_trait]
 pub trait KeyStream: Send + Sync {
     /// Sets iv for the keystream.
-    fn set_iv(&mut self, iv: ValueRef);
+    fn set_key_and_iv(&mut self, key: ValueRef, iv: ValueRef);
 
     /// Preprocesses the keystream for the given number of bytes.
     async fn preprocess(&mut self, len: usize) -> Result<(), StreamCipherError>;

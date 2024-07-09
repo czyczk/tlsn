@@ -10,7 +10,7 @@ use crate::{
     cipher::CtrCircuit,
     circuit::build_array_xor,
     config::{is_valid_mode, ExecutionMode, InputText, StreamCipherConfig},
-    keystream::KeyStream,
+    keystream::MpcKeyStream,
     StreamCipher, StreamCipherError, ZkProve,
 };
 
@@ -32,7 +32,7 @@ struct State<C> {
     /// Key and IV for the cipher.
     key_iv: Option<KeyAndIv>,
     /// Keystream state.
-    keystream: KeyStream<C>,
+    keystream: MpcKeyStream<C, E>,
     /// Current transcript.
     transcript: Transcript,
     /// Maps a transcript ID to the corresponding transcript.
@@ -83,7 +83,7 @@ where
 {
     /// Creates a new counter-mode cipher.
     pub fn new(config: StreamCipherConfig, thread: E) -> Self {
-        let keystream = KeyStream::new(&config.id);
+        let keystream = MpcKeyStream::new(&config.id);
         let transcript = Transcript::new(&config.transcript_id);
         Self {
             config,
@@ -97,11 +97,6 @@ where
             },
             thread,
         }
-    }
-
-    /// Returns a mutable reference to the underlying thread.
-    pub fn thread_mut(&mut self) -> &mut E {
-        &mut self.thread
     }
 
     /// Computes a keystream of the given length.
@@ -121,15 +116,7 @@ where
         let keystream = self
             .state
             .keystream
-            .compute(
-                &mut self.thread,
-                mode,
-                key,
-                iv,
-                explicit_nonce,
-                start_ctr,
-                len,
-            )
+            .compute(mode, key, iv, explicit_nonce, start_ctr, len)
             .await?;
 
         self.state.counter += 1;
@@ -254,13 +241,13 @@ where
 }
 
 #[async_trait]
-impl<C, E> StreamCipher<C> for MpcStreamCipher<C, E>
+impl<C, E> StreamCipher for MpcStreamCipher<C, E>
 where
     C: CtrCircuit,
     E: Thread + Execute + Load + Prove + Verify + Decode + DecodePrivate + Send + Sync + 'static,
 {
-    fn set_key(&mut self, key: ValueRef, iv: ValueRef) {
-        self.state.encoded_key_iv = Some(EncodedKeyAndIv { key, iv });
+    fn set_key(&mut self, key: ValueRef) {
+        self.state.encoded_key = Some(key);
     }
 
     #[instrument(level = "debug", skip_all, err)]
