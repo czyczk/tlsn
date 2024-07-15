@@ -147,9 +147,9 @@ pub async fn initialize(
 
     let prover_session_id = Uuid::new_v4().to_string();
 
-    // Temporal TDN log
+    // TDN log
     info!(
-        prover_session_id = prover_session_id,
+        prover_session_id = %prover_session_id,
         "TDN log: Initializing session.",
     );
 

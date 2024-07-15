@@ -1,1 +1,0 @@
-cargo run -- --config-file ./demo-config.yaml
