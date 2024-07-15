@@ -38,3 +38,5 @@ rand.workspace = true
 signature.workspace = true
 opaque-debug.workspace = true
 tracing.workspace = true
+
+base64.workspace = true

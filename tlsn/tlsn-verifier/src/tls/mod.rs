@@ -6,6 +6,7 @@ mod notarize;
 pub mod state;
 mod verify;
 
+use base64::{prelude::BASE64_STANDARD, Engine};
 pub use config::{VerifierConfig, VerifierConfigBuilder, VerifierConfigBuilderError};
 pub use error::VerifierError;
 use mpz_common::Allocate;
@@ -64,7 +65,10 @@ impl Verifier<state::Initialized> {
         let encoder_seed: [u8; 32] = rand::rngs::OsRng.gen();
 
         // TDN log
-        info!(encoder_seed = ?encoder_seed, "TDN log: MPC setup: encoder seed generated.");
+        {
+            let encoder_seed_base64 = BASE64_STANDARD.encode(&encoder_seed);
+            info!(encoder_seed = %encoder_seed_base64, "TDN log: MPC setup: encoder seed generated.");
+        }
 
         let (mpc_tls, vm, ot_send) = mux_fut
             .poll_with(setup_mpc_backend(
