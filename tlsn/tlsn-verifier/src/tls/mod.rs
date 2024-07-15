@@ -82,6 +82,10 @@ impl Verifier<state::Initialized> {
         };
 
         let encoder_seed: [u8; 32] = rand::rngs::OsRng.gen();
+
+        // TDN log
+        info!(encoder_seed = ?encoder_seed, "TDN log: MPC setup: encoder seed generated.");
+
         let mpc_setup_fut = setup_mpc_backend(&self.config, mux_ctrl.clone(), encoder_seed);
         let (mpc_tls, vm, ot_send, ot_recv, gf2, ot_fut) = futures::select! {
             res = mpc_setup_fut.fuse() => res?,
@@ -171,6 +175,13 @@ impl Verifier<state::Setup> {
             _ = &mut mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
             res = ot_fut => return Err(res.map(|_| ()).expect_err("future will not return Ok here"))
         };
+
+        // TDN log
+        info!(
+            handshake_commitment = ?handshake_commitment,
+            server_key = ?server_ephemeral_key,
+            "TDN log: MPC run (MpcTlsFollowerData).",
+        );
 
         #[cfg(feature = "tracing")]
         info!("Finished TLS session");

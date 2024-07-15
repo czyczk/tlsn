@@ -57,6 +57,16 @@ impl Verifier<Notarize> {
                 .await
                 .map_err(|e| VerifierError::MpcError(Box::new(e)))?;
 
+            // TDN log
+            info!(
+                encoder_seed_existing = ?encoder_seed,
+                merkle_root = ?merkle_root,
+                start_time_existing = ?start_time,
+                notary_signing_key_existing = ?(server_ephemeral_key.clone()),
+                handshake_hash_existing = ?handshake_commitment,
+                "TDN log: MPC finalize; got merkle root; handshake summary = start time + notary signing key + handshake hash; session header = encoder seed + merkle root + handshake summary.",
+            );
+
             gf2.verify()
                 .await
                 .map_err(|e| VerifierError::MpcError(Box::new(e)))?;
@@ -76,6 +86,13 @@ impl Verifier<Notarize> {
             );
 
             let signature = signer.sign(&session_header.to_bytes());
+
+            // TDN log
+            let signature: Signature = signature.into();
+            info!(
+                session_header_signature = ?signature,
+                "TDN log: MPC finalize; generated session hander signature; sent through io later.",
+            );
 
             #[cfg(feature = "tracing")]
             info!("Signed session header");

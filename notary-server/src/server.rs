@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use eyre::{ensure, eyre, Result};
 use futures_util::future::poll_fn;
 use hyper::server::{
@@ -50,6 +51,17 @@ use crate::{
 pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotaryServerError> {
     // Load the private key for notarized transcript signing
     let notary_signing_key = load_notary_signing_key(&config.notary_key).await?;
+
+    // TDN log
+    {
+        let signing_key_bytes = notary_signing_key.clone().to_bytes();
+        let signing_key_base64 = BASE64_STANDARD.encode(&signing_key_bytes);
+        info!(
+            notary_signing_key = %signing_key_base64,
+            "TDN log: loaded notary signing key / priv key.",
+        );
+    }
+
     // Build TLS acceptor if it is turned on
     let tls_acceptor = if !config.tls.enabled {
         debug!("Skipping TLS setup as it is turned off.");

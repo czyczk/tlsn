@@ -147,6 +147,12 @@ pub async fn initialize(
 
     let prover_session_id = Uuid::new_v4().to_string();
 
+    // Temporal TDN log
+    info!(
+        prover_session_id = prover_session_id,
+        "TDN log: Initializing session.",
+    );
+
     // Store the configuration data in a temporary store
     notary_globals.store.lock().await.insert(
         prover_session_id.clone(),
