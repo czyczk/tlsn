@@ -62,6 +62,10 @@ impl Verifier<state::Initialized> {
         let mut exec = Executor::new(mux_ctrl.clone(), 8);
 
         let encoder_seed: [u8; 32] = rand::rngs::OsRng.gen();
+
+        // TDN log
+        info!(encoder_seed = ?encoder_seed, "TDN log: MPC setup: encoder seed generated.");
+
         let (mpc_tls, vm, ot_send) = mux_fut
             .poll_with(setup_mpc_backend(
                 &self.config,
@@ -169,6 +173,13 @@ impl Verifier<state::Setup> {
         } = mux_fut
             .poll_with(mpc_tls.run().1.map_err(VerifierError::from))
             .await?;
+
+        // TDN log
+        info!(
+            handshake_commitment = ?handshake_commitment,
+            server_key = ?server_ephemeral_key,
+            "TDN log: MPC run (MpcTlsFollowerData).",
+        );
 
         info!("Finished TLS session");
 
