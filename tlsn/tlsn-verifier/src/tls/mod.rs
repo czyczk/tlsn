@@ -10,6 +10,7 @@ mod verify;
 use base64::{prelude::BASE64_STANDARD, Engine};
 pub use config::{VerifierConfig, VerifierConfigBuilder, VerifierConfigBuilderError};
 pub use error::VerifierError;
+use mpz_core::serialize::CanonicalSerialize;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -181,11 +182,19 @@ impl Verifier<state::Setup> {
         };
 
         // TDN log
-        info!(
-            handshake_commitment = ?handshake_commitment,
-            server_key = ?server_ephemeral_key,
-            "TDN log: MPC run (MpcTlsFollowerData).",
-        );
+        {
+            let handshake_commitment_base64 =
+                handshake_commitment.map(|it| BASE64_STANDARD.encode(it.clone().to_bytes()));
+            let server_key_json = serde_json::json!({
+                "group": server_ephemeral_key.group,
+                "key": BASE64_STANDARD.encode(server_ephemeral_key.key.to_bytes()),
+            });
+            info!(
+                handshake_commitment = ?handshake_commitment_base64,
+                server_key = ?server_key_json,
+                "TDN log: MPC run (MpcTlsFollowerData).",
+            );
+        }
 
         #[cfg(feature = "tracing")]
         info!("Finished TLS session");

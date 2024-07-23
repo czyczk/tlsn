@@ -1,6 +1,7 @@
 //! This module implements the key exchange logic
 
 use async_trait::async_trait;
+use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::{SinkExt, StreamExt};
 use mpz_garble::{value::ValueRef, Decode, Execute, Load, Memory};
 
@@ -8,6 +9,7 @@ use mpz_fields::{p256::P256, Field};
 use p256::{EncodedPoint, PublicKey, SecretKey};
 use point_addition::PointAddition;
 use std::fmt::Debug;
+use tracing::info;
 
 use utils_aio::expect_msg_or_err;
 
@@ -142,6 +144,15 @@ where
             Role::Leader => {
                 // Send server public key to follower
                 if let Some(server_key) = &self.server_key {
+                    // TDN log
+                    {
+                        let server_key_base64 = BASE64_STANDARD.encode(server_key.to_sec1_bytes());
+                        println!(
+                            "TDN log: L-send->F: KeyExchangeMessage::ServerPublicKey; public_key={}",
+                            server_key_base64,
+                        );
+                    }
+
                     self.channel
                         .send(KeyExchangeMessage::ServerPublicKey((*server_key).into()))
                         .await?;
@@ -155,6 +166,16 @@ where
                 // Receive server's public key from leader
                 let message =
                     expect_msg_or_err!(self.channel, KeyExchangeMessage::ServerPublicKey)?;
+
+                // TDN log
+                {
+                    let message_base64 = BASE64_STANDARD.encode(&message.key);
+                    println!(
+                        "TDN log: F<-recv-L: KeyExchangeMessage::ServerPublicKey; message={}",
+                        message_base64,
+                    );
+                }
+
                 let server_key = message.try_into()?;
 
                 self.server_key = Some(server_key);
@@ -263,6 +284,16 @@ where
         }
 
         self.state = State::Complete;
+
+        // TDN log
+        {
+            let ids = pms_1
+                .clone()
+                .iter()
+                .map(|id| id.as_ref().to_string())
+                .collect::<Vec<_>>();
+            println!("TDN log: KeyExchangeCore::compute_pms_for; pms={:?}", ids,);
+        }
 
         // Both parties use pms_1 as the pre-master secret
         Ok(Pms::new(pms_1))
@@ -392,6 +423,16 @@ where
                 // Receive public key from follower
                 let message =
                     expect_msg_or_err!(self.channel, KeyExchangeMessage::FollowerPublicKey)?;
+
+                // TDN log
+                {
+                    let message_base64 = BASE64_STANDARD.encode(&message.key);
+                    println!(
+                        "TDN log: L<-recv-F: KeyExchangeMessage::FollowerPublicKey; message={}",
+                        message_base64,
+                    );
+                }
+
                 let follower_public_key: PublicKey = message.try_into()?;
 
                 // Combine public keys
@@ -402,6 +443,15 @@ where
                 Ok(Some(client_public_key))
             }
             Role::Follower => {
+                // TDN log
+                {
+                    let public_key_base64 = BASE64_STANDARD.encode(public_key.to_sec1_bytes());
+                    println!(
+                        "TDN log: F-send->L: KeyExchangeMessage::FollowerPublicKey; public_key={}",
+                        public_key_base64,
+                    );
+                }
+
                 // Send public key to leader
                 self.channel
                     .send(KeyExchangeMessage::FollowerPublicKey(public_key.into()))
@@ -419,6 +469,16 @@ where
     )]
     async fn compute_pms(&mut self) -> Result<Pms, KeyExchangeError> {
         let (pms_share1, pms_share2) = self.compute_pms_shares().await?;
+
+        // TDN log
+        {
+            let pms_share1_base64 = BASE64_STANDARD.encode(&pms_share1.to_le_bytes());
+            let pms_share2_base64 = BASE64_STANDARD.encode(&pms_share2.to_le_bytes());
+            println!(
+                "TDN log: KeyExchangeCore::compute_pms; pms_share1={}; pms_share2={}",
+                pms_share1_base64, pms_share2_base64,
+            );
+        }
 
         self.compute_pms_for(pms_share1, pms_share2).await
     }

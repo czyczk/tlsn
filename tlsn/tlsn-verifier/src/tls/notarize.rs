@@ -3,6 +3,7 @@
 //! The TLS verifier is only a notary.
 
 use super::{state::Notarize, Verifier, VerifierError};
+use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
 use mpz_core::serialize::CanonicalSerialize;
 use mpz_share_conversion::ShareConversionVerify;
@@ -58,14 +59,24 @@ impl Verifier<Notarize> {
                 .map_err(|e| VerifierError::MpcError(Box::new(e)))?;
 
             // TDN log
-            info!(
-                encoder_seed_existing = ?encoder_seed,
-                merkle_root = ?merkle_root,
-                start_time_existing = ?start_time,
-                notary_signing_key_existing = ?(server_ephemeral_key.clone()),
-                handshake_hash_existing = ?handshake_commitment,
-                "TDN log: MPC finalize; got merkle root; handshake summary = start time + notary signing key + handshake hash; session header = encoder seed + merkle root + handshake summary.",
-            );
+            {
+                let encoder_seed_base64 = BASE64_STANDARD.encode(encoder_seed);
+                let merkle_root_base64 = BASE64_STANDARD.encode(merkle_root.to_bytes());
+                let server_ephemeral_key_json = serde_json::json!({
+                        "group": server_ephemeral_key.group,
+                        "key": BASE64_STANDARD.encode(server_ephemeral_key.key.to_bytes()),
+                });
+                let handshake_commitment_base64 =
+                    BASE64_STANDARD.encode(handshake_commitment.to_bytes());
+                info!(
+                    encoder_seed_existing = %encoder_seed_base64,
+                    merkle_root = %merkle_root_base64,
+                    start_time_existing = %start_time,
+                    server_ephemeral_key_existing = ?server_ephemeral_key_json,
+                    handshake_commitment_existing = ?handshake_commitment_base64,
+                    "TDN log: MPC finalize; got merkle root; handshake summary = start time + server ephemeral key + handshake commitment; session header = encoder seed + merkle root + handshake summary.",
+                );
+            }
 
             gf2.verify()
                 .await

@@ -32,6 +32,8 @@ futures = "0.3"
 derive_builder = "0.12"
 tracing = { version = "0.1", optional = true }
 
+base64 = "0.22"
+
 [dev-dependencies]
 rand_chacha = "0.3"
 rand_core = "0.6"

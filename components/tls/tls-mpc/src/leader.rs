@@ -4,12 +4,16 @@ use async_trait::async_trait;
 use futures::SinkExt;
 
 use key_exchange as ke;
-use mpz_core::commit::{Decommitment, HashCommit};
+use mpz_core::{
+    commit::{Decommitment, HashCommit},
+    serialize::CanonicalSerialize,
+};
 
 use aead::Aead;
 use hmac_sha256::Prf;
 use ke::KeyExchange;
 
+use base64::{prelude::BASE64_STANDARD, Engine};
 use p256::SecretKey;
 use tls_backend::{
     Backend, BackendError, BackendNotifier, BackendNotify, DecryptMode, EncryptMode,
@@ -28,6 +32,7 @@ use tls_core::{
     },
     suites::SupportedCipherSuite,
 };
+use tracing::info;
 
 use crate::{
     error::Kind,
@@ -213,6 +218,9 @@ impl MpcTlsLeader {
     ) -> Result<OpaqueMessage, MpcTlsError> {
         let Cf { data } = self.state.take().try_into_cf()?;
 
+        // TDN log
+        info!("TDN log: L-send->F: MpcTlsMessage::EncryptClientFinished");
+
         self.channel
             .send(MpcTlsMessage::EncryptClientFinished(EncryptClientFinished))
             .await?;
@@ -242,6 +250,15 @@ impl MpcTlsLeader {
             ));
         }
 
+        // TDN log
+        {
+            let msg_base64 = BASE64_STANDARD.encode(&msg.payload.0.clone());
+            info!(
+                msg = %msg_base64,
+                "TDN log: L-send->F: MpcTlsMessage::EncryptAlert",
+            );
+        }
+
         self.channel
             .send(MpcTlsMessage::EncryptAlert(EncryptAlert {
                 msg: msg.payload.0.clone(),
@@ -264,6 +281,14 @@ impl MpcTlsLeader {
         self.state.try_as_active()?;
         self.check_transcript_length(Direction::Sent, msg.payload.0.len())?;
 
+        // TDN log
+        {
+            info!(
+                len = msg.payload.0.len(),
+                "TDN log: L-send->F: MpcTlsMessage::EncryptMessage",
+            );
+        }
+
         self.channel
             .send(MpcTlsMessage::EncryptMessage(EncryptMessage {
                 len: msg.payload.0.len(),
@@ -284,6 +309,15 @@ impl MpcTlsLeader {
         msg: OpaqueMessage,
     ) -> Result<PlainMessage, MpcTlsError> {
         let Sf { data } = self.state.take().try_into_sf()?;
+
+        // TDN log
+        {
+            let ciphertext_base64 = BASE64_STANDARD.encode(&msg.payload.0);
+            info!(
+                ciphertext = %ciphertext_base64,
+                "TDN log: L-send->F: MpcTlsMessage::DecryptServerFinished",
+            );
+        }
 
         self.channel
             .send(MpcTlsMessage::DecryptServerFinished(
@@ -307,6 +341,15 @@ impl MpcTlsLeader {
     async fn decrypt_alert(&mut self, msg: OpaqueMessage) -> Result<PlainMessage, MpcTlsError> {
         self.state.try_as_active()?;
 
+        // TDN log
+        {
+            let ciphertext_base64 = BASE64_STANDARD.encode(&msg.payload.0);
+            info!(
+                ciphertext = %ciphertext_base64,
+                "TDN log: L-send->F: MpcTlsMessage::DecryptAlert",
+            );
+        }
+
         self.channel
             .send(MpcTlsMessage::DecryptAlert(DecryptAlert {
                 ciphertext: msg.payload.0.clone(),
@@ -329,6 +372,11 @@ impl MpcTlsLeader {
         self.state.try_as_active()?;
         self.check_transcript_length(Direction::Recv, msg.payload.0.len())?;
 
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::DecryptMessage");
+        }
+
         self.channel
             .send(MpcTlsMessage::DecryptMessage(DecryptMessage))
             .await?;
@@ -349,6 +397,11 @@ impl MpcTlsLeader {
 
         #[cfg(feature = "tracing")]
         tracing::debug!("committing to transcript");
+
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::Commit");
+        }
 
         self.channel.send(MpcTlsMessage::Commit(Commit)).await?;
 
@@ -375,6 +428,11 @@ impl MpcTlsLeader {
     pub async fn close_connection(&mut self) -> Result<(), MpcTlsError> {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing connection");
+
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::CloseConnection");
+        }
 
         self.channel
             .send(MpcTlsMessage::CloseConnection(CloseConnection))
@@ -457,14 +515,30 @@ impl Backend for MpcTlsLeader {
     }
 
     async fn get_client_key_share(&mut self) -> Result<PublicKey, BackendError> {
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::ComputeClientKey");
+        }
+
         self.channel
             .send(MpcTlsMessage::ComputeClientKey(ComputeClientKey))
             .await
             .map_err(MpcTlsError::from)?;
 
+        let secret_key = SecretKey::random(&mut rand::rngs::OsRng);
+
+        // TDN log
+        {
+            let secret_key_base64 = BASE64_STANDARD.encode(secret_key.to_bytes());
+            info!(
+                secret_key = %secret_key_base64,
+                "TDN log: MpcTlsLeader::get_client_key_share; generated leader secret key",
+            );
+        }
+
         let pk = self
             .ke
-            .compute_client_key(SecretKey::random(&mut rand::rngs::OsRng))
+            .compute_client_key(secret_key)
             .await
             .map_err(MpcTlsError::from)?
             .expect("client key is returned as leader");
@@ -540,6 +614,11 @@ impl Backend for MpcTlsLeader {
             .try_into()
             .map_err(|_| MpcTlsError::other("server finished handshake hash is not 32 bytes"))?;
 
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::ServerFinishedVd");
+        }
+
         self.channel
             .send(MpcTlsMessage::ServerFinishedVd(ServerFinishedVd))
             .await
@@ -558,6 +637,11 @@ impl Backend for MpcTlsLeader {
         let hash: [u8; 32] = hash
             .try_into()
             .map_err(|_| MpcTlsError::other("client finished handshake hash is not 32 bytes"))?;
+
+        // TDN log
+        {
+            info!("TDN log: L-send->F: MpcTlsMessage::ClientFinishedVd");
+        }
 
         self.channel
             .send(MpcTlsMessage::ClientFinishedVd(ClientFinishedVd))
@@ -610,6 +694,16 @@ impl Backend for MpcTlsLeader {
             } else {
                 (None, None)
             };
+
+        // TDN log
+        {
+            let handshake_commitment_base64 =
+                handshake_commitment.map(|it| BASE64_STANDARD.encode(it.to_bytes()));
+            info!(
+                handshake_commitment = ?handshake_commitment_base64,
+                "TDN log: L-send->F: MpcTlsMessage::ComputeKeyExchange",
+            );
+        }
 
         self.channel
             .send(MpcTlsMessage::ComputeKeyExchange(ComputeKeyExchange {
@@ -699,6 +793,15 @@ impl Backend for MpcTlsLeader {
         }
 
         if msg.typ == ContentType::ApplicationData {
+            // TDN log
+            {
+                let msg_base64 = BASE64_STANDARD.encode(&msg.payload.0);
+                info!(
+                    msg = %msg_base64,
+                    "TDN log: L-send->F: MpcTlsMessage::CommitMessage",
+                );
+            }
+
             self.channel
                 .send(MpcTlsMessage::CommitMessage(CommitMessage {
                     msg: msg.payload.0.clone(),

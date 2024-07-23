@@ -24,6 +24,7 @@ use tls_core::{
         message::{OpaqueMessage, PlainMessage},
     },
 };
+use tracing::info;
 
 use crate::{
     error::Kind,
@@ -179,6 +180,15 @@ impl MpcTlsFollower {
 
         let mut remote_fut = Box::pin(async move {
             while let Some(msg) = stream.next().await {
+                // TDN log
+                {
+                    let msg_json = msg.as_ref().map(|it| serde_json::to_string(it).unwrap());
+                    info!(
+                        msg = ?msg_json,
+                        "TDN log: F<-recv-L (MpcTlsMessage)",
+                    );
+                }
+
                 let msg = MpcTlsFollowerMsg::try_from(msg?)?;
                 addr.send_await(msg).await?;
             }
