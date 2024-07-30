@@ -679,6 +679,17 @@ impl Backend for MpcTlsLeader {
             server_public_key.ok_or(MpcTlsError::other("server public key not set"))?;
         let server_random = server_random.ok_or(MpcTlsError::other("server random not set"))?;
 
+        // TDN log
+        {
+            let client_random_base64 = BASE64_STANDARD.encode(client_random.0);
+            let server_random_base64 = BASE64_STANDARD.encode(server_random.0);
+            info!(
+                client_random = ?client_random_base64,
+                server_random = ?server_random_base64,
+                "TDN log: MpcTlsLeader::prepare_encryption",
+            );
+        }
+
         let handshake_data = HandshakeData::new(
             server_cert_details.clone(),
             server_kx_details.clone(),

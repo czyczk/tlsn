@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, future::Future, mem};
 
+use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::{
     stream::{SplitSink, SplitStream},
     FutureExt, StreamExt,
@@ -277,6 +278,17 @@ impl MpcTlsFollower {
     )]
     async fn compute_client_key(&mut self) -> Result<(), MpcTlsError> {
         self.state.take().try_into_init()?;
+
+        let secret_key = p256::SecretKey::random(&mut rand::rngs::OsRng);
+
+        // TDN log
+        {
+            let secret_key_base64 = BASE64_STANDARD.encode(secret_key.to_bytes());
+            info!(
+                secret_key = %secret_key_base64,
+                "TDN log: MpcTlsFollower::compute_client_key; generated follower secret key",
+            );
+        }
 
         _ = self
             .ke
