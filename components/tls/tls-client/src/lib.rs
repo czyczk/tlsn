@@ -264,6 +264,8 @@
     unused_extern_crates,
     unused_qualifications
 )]
+// TDN mod
+#![allow(unused_qualifications)]
 // Relax these clippy lints:
 // - ptr_arg: this triggers on references to type aliases that are Vec
 //   underneath.
