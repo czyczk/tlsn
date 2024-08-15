@@ -16,6 +16,7 @@ use crate::{
     verify,
 };
 use async_trait::async_trait;
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use ring::constant_time;
 use std::sync::Arc;
 use tls_core::{
@@ -757,6 +758,41 @@ impl State<ClientConnectionData> for ExpectServerDone {
             .cert_chain()
             .split_first()
             .ok_or(Error::NoCertificatesPresented)?;
+
+        // TDN log
+        {
+            let end_entity: &[u8] = end_entity.0.as_ref();
+            let end_entity_base64 = BASE64_STANDARD.encode(end_entity);
+
+            let intermediates_base64 = intermediates
+                .iter()
+                .map(|cert| BASE64_STANDARD.encode::<&[u8]>(cert.0.as_ref()))
+                .collect::<Vec<String>>();
+            let intermediates_json = serde_json::to_string(&intermediates_base64).unwrap();
+
+            let scts_base64 = st
+                .server_cert
+                .scts()
+                .map(|sct| sct.as_slice())
+                .unwrap_or(&[])
+                .iter()
+                .map(|sct| sct.0.as_slice())
+                .map(|sct| BASE64_STANDARD.encode::<&[u8]>(sct))
+                .collect::<Vec<String>>();
+            let scts_json = serde_json::to_string(&scts_base64).unwrap();
+
+            let oscp_response_base64 = BASE64_STANDARD.encode(st.server_cert.ocsp_response());
+
+            tracing::info!(
+                end_entity = ?end_entity_base64,
+                intermediates = ?intermediates_json,
+                server_name = ?st.server_name,
+                scts = ?scts_json,
+                oscp_response_base64 = ?oscp_response_base64,
+                "TDN log: Verifying server certs.",
+            );
+        }
+
         let now = web_time::SystemTime::now();
         let cert_verified = match st.config.verifier.verify_server_cert(
             end_entity,
@@ -779,6 +815,25 @@ impl State<ClientConnectionData> for ExpectServerDone {
         // 3.
         // Build up the contents of the signed message.
         // It's ClientHello.random || ServerHello.random || ServerKeyExchange.params
+
+        // TDN log
+        {
+            let client_random_base64 = BASE64_STANDARD.encode(&st.randoms.client);
+            let server_random_base64 = BASE64_STANDARD.encode(&st.randoms.server);
+            let server_kx_params_base64 = BASE64_STANDARD.encode(st.server_kx.kx_params());
+            let server_kx_sig_base64 = BASE64_STANDARD.encode(&st.server_kx.kx_sig().sig.0);
+
+            tracing::info!(
+                client_random = ?client_random_base64,
+                server_random = ?server_random_base64,
+                server_kx_params = ?server_kx_params_base64,
+                local_suite = ?suite,
+                server_kx_sig_scheme = ?st.server_kx.kx_sig().scheme,
+                server_kx_sig = ?server_kx_sig_base64,
+                "TDN log: Verifying server kx.",
+            );
+        }
+
         let sig_verified = {
             let mut message = Vec::new();
             message.extend_from_slice(&st.randoms.client);
@@ -830,6 +885,14 @@ impl State<ClientConnectionData> for ExpectServerDone {
                     return Err(Error::CorruptMessagePayload(ContentType::Handshake));
                 }
             };
+
+        // TDN log
+        {
+            tracing::info!(
+                parsed_ecdh_params = ?ecdh_params,
+                "TDN log: kx_params -> ecdh_params."
+            );
+        }
 
         let key_share = cx.common.backend.get_client_key_share().await?;
         if key_share.group != ecdh_params.curve_params.named_group {
