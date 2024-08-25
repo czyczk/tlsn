@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use mpz_circuits::{
     types::{StaticValueType, Value},
     Circuit,
@@ -116,6 +117,23 @@ impl CtrCircuit for Aes128Ctr {
         full_iv[4..12].copy_from_slice(explicit_nonce);
         let mut cipher = Ctr32BE::<Aes128>::new(key.into(), &full_iv.into());
         let mut buf = msg.to_vec();
+
+        // TDN log
+        {
+            let key_base64 = BASE64_STANDARD.encode(key);
+            let iv_base64 = BASE64_STANDARD.encode(iv);
+            let explicit_nonce_base64 = BASE64_STANDARD.encode(explicit_nonce);
+            let full_iv_base64 = BASE64_STANDARD.encode(&full_iv);
+            let msg_base64 = BASE64_STANDARD.encode(&msg);
+            tracing::info!(
+                key = ?key_base64,
+                iv = ?iv_base64,
+                explicit_nonce = ?explicit_nonce_base64,
+                full_iv = ?full_iv_base64,
+                msg = ?msg_base64,
+                "TDN log: aes128ctr keystream params.",
+            );
+        }
 
         cipher
             .try_seek(start_ctr * Self::BLOCK_LEN)

@@ -6,10 +6,12 @@ use futures::{SinkExt, StreamExt};
 use mpz_garble::{value::ValueRef, Decode, Execute, Load, Memory};
 
 use mpz_fields::{p256::P256, Field};
-use p256::{EncodedPoint, PublicKey, SecretKey};
+use p256::{
+    elliptic_curve::sec1::{Coordinates, ToEncodedPoint},
+    EncodedPoint, PublicKey, SecretKey,
+};
 use point_addition::PointAddition;
 use std::fmt::Debug;
-use tracing::info;
 
 use utils_aio::expect_msg_or_err;
 
@@ -147,9 +149,23 @@ where
                     // TDN log
                     {
                         let server_key_base64 = BASE64_STANDARD.encode(server_key.to_sec1_bytes());
+                        let server_key_encoded_point = server_key.to_encoded_point(false);
+                        let (x_hex, y_hex) = match server_key_encoded_point.coordinates() {
+                            Coordinates::Uncompressed { x, y } => (
+                                format!("{:x}", p256::U256::from_be_slice(&x)),
+                                format!("{:x}", p256::U256::from_be_slice(&y)),
+                            ),
+                            _ => panic!("Expected uncompressed coordinates"),
+                        };
+                        tracing::info!(
+                            server_public_key_base64 = ?server_key_base64,
+                            server_public_key_x_hex = ?x_hex,
+                            server_public_key_y_hex = ?y_hex,
+                            "TDN log: L-send->F: KeyExchangeMessage::ServerPublicKey",
+                        );
                         println!(
-                            "TDN log: L-send->F: KeyExchangeMessage::ServerPublicKey; public_key={}",
-                            server_key_base64,
+                            "TDN log: L-send->F: KeyExchangeMessage::ServerPublicKey; public_key_sec1_bytes={}; public_key_x_hex={}; public_key_y_hex={}",
+                            server_key_base64, x_hex, y_hex,
                         );
                     }
 
@@ -171,12 +187,28 @@ where
                 {
                     let message_base64 = BASE64_STANDARD.encode(&message.key);
                     println!(
-                        "TDN log: F<-recv-L: KeyExchangeMessage::ServerPublicKey; message={}",
+                        "TDN log: F<-recv-L: KeyExchangeMessage::ServerPublicKey; message_base64={}",
                         message_base64,
                     );
                 }
 
-                let server_key = message.try_into()?;
+                let server_key: PublicKey = message.try_into()?;
+
+                // TDN log
+                {
+                    let server_key_encoded_point = server_key.to_encoded_point(false);
+                    let (x_hex, y_hex) = match server_key_encoded_point.coordinates() {
+                        Coordinates::Uncompressed { x, y } => (
+                            format!("{:x}", p256::U256::from_be_slice(&x)),
+                            format!("{:x}", p256::U256::from_be_slice(&y)),
+                        ),
+                        _ => panic!("Expected uncompressed coordinates"),
+                    };
+                    println!(
+                        "TDN log: F<-recv-L: KeyExchangeMessage::ServerPublicKey (additional); server_key_x_hex={}; server_key_y_hex={}",
+                        x_hex, y_hex,
+                    );
+                }
 
                 self.server_key = Some(server_key);
 
@@ -416,6 +448,31 @@ where
         private_key: SecretKey,
     ) -> Result<Option<PublicKey>, KeyExchangeError> {
         let public_key = private_key.public_key();
+
+        // TDN log
+        {
+            let this_public_key_base64 = BASE64_STANDARD.encode(public_key.to_sec1_bytes());
+            let this_public_key_encoded_point = public_key.to_encoded_point(false);
+            let (x_hex, y_hex) = match this_public_key_encoded_point.coordinates() {
+                Coordinates::Uncompressed { x, y } => (
+                    format!("{:x}", p256::U256::from_be_slice(&x)),
+                    format!("{:x}", p256::U256::from_be_slice(&y)),
+                ),
+                _ => panic!("Expected uncompressed coordinates"),
+            };
+            tracing::info!(
+                role = ?self.config.role(),
+                this_public_key_base64 = ?this_public_key_base64,
+                this_public_key_x_hex = ?x_hex,
+                this_public_key_y_hex = ?y_hex,
+                "TDN log: ThisPublicKey",
+            );
+            println!(
+                "TDN log: ThisPublicKey; role: {:?}; this_public_key_base64={}; this_public_key_x_hex={}; this_public_key_y_hex={}",
+                self.config.role(), this_public_key_base64, x_hex, y_hex,
+            );
+        }
+
         self.private_key = Some(private_key);
 
         match self.config.role() {
@@ -427,6 +484,10 @@ where
                 // TDN log
                 {
                     let message_base64 = BASE64_STANDARD.encode(&message.key);
+                    tracing::info!(
+                        message_base64 = ?message_base64,
+                        "TDN log: L<-recv-F: KeyExchangeMessage::FollowerPublicKey",
+                    );
                     println!(
                         "TDN log: L<-recv-F: KeyExchangeMessage::FollowerPublicKey; message={}",
                         message_base64,
@@ -435,10 +496,56 @@ where
 
                 let follower_public_key: PublicKey = message.try_into()?;
 
+                // TDN log
+                {
+                    let follower_public_key_encoded_point =
+                        follower_public_key.to_encoded_point(false);
+                    let (x_hex, y_hex) = match follower_public_key_encoded_point.coordinates() {
+                        Coordinates::Uncompressed { x, y } => (
+                            format!("{:x}", p256::U256::from_be_slice(&x)),
+                            format!("{:x}", p256::U256::from_be_slice(&y)),
+                        ),
+                        _ => panic!("Expected uncompressed coordinates"),
+                    };
+                    tracing::info!(
+                        follower_public_key_x_hex = ?x_hex,
+                        follower_public_key_y_hex = ?y_hex,
+                        "TDN log: L<-recv-F: KeyExchangeMessage::FollowerPublicKey (additional)",
+                    );
+                    println!(
+                        "TDN log: L<-recv-F: KeyExchangeMessage::FollowerPublicKey (additional); follower_public_key_x_hex={}; follower_public_key_y_hex={}",
+                        x_hex, y_hex,
+                    );
+                }
+
                 // Combine public keys
                 let client_public_key = PublicKey::from_affine(
                     (public_key.to_projective() + follower_public_key.to_projective()).to_affine(),
                 )?;
+
+                // TDN log
+                {
+                    let client_public_key_base64 =
+                        BASE64_STANDARD.encode(client_public_key.to_sec1_bytes());
+                    let client_public_key_encoded_point = client_public_key.to_encoded_point(false);
+                    let (x_hex, y_hex) = match client_public_key_encoded_point.coordinates() {
+                        Coordinates::Uncompressed { x, y } => (
+                            format!("{:x}", p256::U256::from_be_slice(&x)),
+                            format!("{:x}", p256::U256::from_be_slice(&y)),
+                        ),
+                        _ => panic!("Expected uncompressed coordinates"),
+                    };
+                    tracing::info!(
+                        client_public_key_base64 = ?client_public_key_base64,
+                        client_public_key_x_hex = ?x_hex,
+                        client_public_key_y_hex = ?y_hex,
+                        "TDN log: ClientPublicKey",
+                    );
+                    println!(
+                        "TDN log: ClientPublicKey; client_public_key_base64={}; client_public_key_x_hex={}; client_public_key_y_hex={}",
+                        client_public_key_base64, x_hex, y_hex,
+                    );
+                }
 
                 Ok(Some(client_public_key))
             }
@@ -446,9 +553,17 @@ where
                 // TDN log
                 {
                     let public_key_base64 = BASE64_STANDARD.encode(public_key.to_sec1_bytes());
+                    let public_key_encoded_point = public_key.to_encoded_point(false);
+                    let (x_hex, y_hex) = match public_key_encoded_point.coordinates() {
+                        Coordinates::Uncompressed { x, y } => (
+                            format!("{:x}", p256::U256::from_be_slice(&x)),
+                            format!("{:x}", p256::U256::from_be_slice(&y)),
+                        ),
+                        _ => panic!("Expected uncompressed coordinates"),
+                    };
                     println!(
-                        "TDN log: F-send->L: KeyExchangeMessage::FollowerPublicKey; public_key={}",
-                        public_key_base64,
+                        "TDN log: F-send->L: KeyExchangeMessage::FollowerPublicKey; public_key={}; public_key_x_hex={}; public_key_y_hex={}",
+                        public_key_base64, x_hex, y_hex,
                     );
                 }
 

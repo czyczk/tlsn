@@ -290,10 +290,7 @@ impl MpcTlsFollower {
             );
         }
 
-        _ = self
-            .ke
-            .compute_client_key(p256::SecretKey::random(&mut rand::rngs::OsRng))
-            .await?;
+        _ = self.ke.compute_client_key(secret_key).await?;
 
         self.state = State::ClientKey;
 
