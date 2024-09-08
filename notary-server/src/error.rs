@@ -4,6 +4,7 @@ use axum::{
 };
 use eyre::Report;
 use std::error::Error;
+use tdn_verifier::tls::{TdnVerifierConfigBuilderError, TdnVerifierError};
 
 use tlsn_verifier::tls::{VerifierConfigBuilderError, VerifierError};
 
@@ -27,8 +28,20 @@ impl From<VerifierError> for NotaryServerError {
     }
 }
 
+impl From<TdnVerifierError> for NotaryServerError {
+    fn from(error: TdnVerifierError) -> Self {
+        Self::Notarization(Box::new(error))
+    }
+}
+
 impl From<VerifierConfigBuilderError> for NotaryServerError {
     fn from(error: VerifierConfigBuilderError) -> Self {
+        Self::Notarization(Box::new(error))
+    }
+}
+
+impl From<TdnVerifierConfigBuilderError> for NotaryServerError {
+    fn from(error: TdnVerifierConfigBuilderError) -> Self {
         Self::Notarization(Box::new(error))
     }
 }

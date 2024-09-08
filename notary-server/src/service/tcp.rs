@@ -9,7 +9,11 @@ use hyper::upgrade::{OnUpgrade, Upgraded};
 use std::future::Future;
 use tracing::{debug, error, info};
 
-use crate::{domain::notary::NotaryGlobals, service::notary_service, NotaryServerError};
+use crate::{
+    domain::notary::NotaryGlobals,
+    service::{notary_service, run_tdn_collect},
+    NotaryServerError,
+};
 
 /// Custom extractor used to extract underlying TCP connection for TCP client — using the same upgrade primitives used by
 /// the WebSocket implementation where the underlying TCP connection (wrapped in an Upgraded object) only gets polled as an OnUpgrade future
@@ -98,6 +102,36 @@ pub async fn tcp_notarize(
         }
         Err(err) => {
             error!(?session_id, "Failed notarization using tcp: {err}");
+        }
+    }
+}
+
+/// Perform TDN collect using the extracted tcp connection
+pub async fn tcp_tdn_collect(
+    stream: Upgraded,
+    notary_globals: NotaryGlobals,
+    session_id: String,
+    max_sent_data: Option<usize>,
+    max_recv_data: Option<usize>,
+) {
+    debug!(?session_id, "Upgraded to tcp connection");
+    match run_tdn_collect(
+        stream,
+        &notary_globals.notary_signing_key,
+        &session_id,
+        max_sent_data,
+        max_recv_data,
+    )
+    .await
+    {
+        Ok(_) => {
+            info!(?session_id, "Successful TDN collection process using tcp!");
+        }
+        Err(err) => {
+            error!(
+                ?session_id,
+                "Failed TDN collection process using tcp: {err}"
+            );
         }
     }
 }

@@ -42,7 +42,7 @@ use crate::{
     },
     error::NotaryServerError,
     middleware::AuthorizationMiddleware,
-    service::{initialize, upgrade_protocol},
+    service::{initialize, upgrade_protocol, upgrade_protocol_for_tdn_collect},
     util::parse_csv_file,
 };
 
@@ -170,6 +170,7 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
             NotaryGlobals,
         >(notary_globals.clone()))
         .route("/notarize", get(upgrade_protocol))
+        .route("/tdn-collect", get(upgrade_protocol_for_tdn_collect))
         .layer(CorsLayer::permissive())
         .with_state(notary_globals);
     let mut app = router.into_make_service();

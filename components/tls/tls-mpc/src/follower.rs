@@ -78,10 +78,18 @@ impl ludi::Actor for MpcTlsFollower {
         #[cfg(feature = "tracing")]
         tracing::debug!("follower actor stopped");
 
+        // TDN patch.
+        // The Ludi receiver can sometimes miss the last message which is the CloseConnection message.
+        // Manually close the connection here.
         let Closed {
             handshake_commitment,
             server_key,
-        } = self.state.take().try_into_closed()?;
+        } = {
+            if !self.state.is_closed() {
+                self.close_connection()?;
+            }
+            self.state.take().try_into_closed()?
+        };
 
         let bytes_sent = self.encrypter.sent_bytes();
         let bytes_recv = self.decrypter.recv_bytes();
@@ -551,6 +559,11 @@ impl MpcTlsFollower {
         tracing::instrument(level = "trace", skip_all, err)
     )]
     fn close_connection(&mut self) -> Result<(), MpcTlsError> {
+        // TDN log
+        {
+            info!("TDN log: MpcTlsFollower::close_connection; closing connection");
+        }
+
         let Active {
             handshake_commitment,
             server_key,
