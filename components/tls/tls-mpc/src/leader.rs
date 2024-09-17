@@ -71,6 +71,8 @@ pub struct MpcTlsLeader {
     buffer: VecDeque<OpaqueMessage>,
     /// Whether we have already committed to the transcript.
     committed: bool,
+    /// Whether TDN mode is on.
+    tdn_mode: bool,
 }
 
 impl ludi::Actor for MpcTlsLeader {
@@ -109,6 +111,7 @@ impl MpcTlsLeader {
         );
 
         Self {
+            tdn_mode: config.common().tdn_mode(),
             config,
             channel,
             state: State::default(),
@@ -719,6 +722,16 @@ impl Backend for MpcTlsLeader {
         self.channel
             .send(MpcTlsMessage::ComputeKeyExchange(ComputeKeyExchange {
                 handshake_commitment,
+                client_random: if self.tdn_mode {
+                    Some(client_random.0.to_vec())
+                } else {
+                    None
+                },
+                server_random: if self.tdn_mode {
+                    Some(server_random.0.to_vec())
+                } else {
+                    None
+                },
             }))
             .await
             .map_err(|e| BackendError::InternalError(e.to_string()))?;
@@ -750,6 +763,19 @@ impl Backend for MpcTlsLeader {
                 server_kx_details,
                 handshake_data,
                 handshake_decommitment,
+                private_key: if self.tdn_mode {
+                    self.ke
+                        .private_key()
+                        .expect("private key is not set in TDN mode");
+                    self.ke.private_key()
+                } else {
+                    None
+                },
+                notary_session_public_key: self
+                    .ke
+                    .follower_public_key()
+                    .map(|key| PublicKey::from(key)),
+                ciphertext_application_data_server: Default::default(),
             },
         });
 
@@ -811,6 +837,15 @@ impl Backend for MpcTlsLeader {
                     msg = %msg_base64,
                     "TDN log: L-send->F: MpcTlsMessage::CommitMessage",
                 );
+            }
+
+            if self.tdn_mode {
+                // Store the ciphertext of the application data from the server in TDN mode.
+                let Active { data, .. } = self.state.try_as_active_mut().map_err(|e| {
+                    BackendError::InvalidState(format!("expecting Active; {}", e.to_string()))
+                })?;
+
+                data.ciphertext_application_data_server = Some(msg.payload.0.clone());
             }
 
             self.channel
@@ -876,6 +911,12 @@ pub struct MpcTlsData {
     pub handshake_data: HandshakeData,
     /// Handshake data decommitment.
     pub handshake_decommitment: Option<Decommitment<HandshakeData>>,
+    /// Leader private key. Only present and necessary in TDN mode.
+    pub private_key: Option<SecretKey>,
+    /// Notary session public key. Only present and necessary in TDN mode.
+    pub notary_session_public_key: Option<PublicKey>,
+    /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
+    pub ciphertext_application_data_server: Option<Vec<u8>>,
 }
 
 mod state {

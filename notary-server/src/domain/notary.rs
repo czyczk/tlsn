@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use p256::ecdsa::SigningKey;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use tdn_core::session::TdnSessionData;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{config::NotarizationProperties, domain::auth::AuthorizationWhitelistRecord};
@@ -35,6 +36,14 @@ pub struct NotarizationRequestQuery {
     pub session_id: String,
 }
 
+/// Request query of the /tdn-collect API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TdnCollectRequest {
+    /// Session id that is returned from /session API
+    pub session_id: String,
+}
+
 /// Types of client that the prover is using
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ClientType {
@@ -59,6 +68,8 @@ pub struct NotaryGlobals {
     pub notarization_config: NotarizationProperties,
     /// A temporary storage to store configuration data, mainly used for WebSocket client
     pub store: Arc<AsyncMutex<HashMap<String, SessionData>>>,
+    /// A storage to store TDN sessions.
+    pub tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     /// Whitelist of API keys for authorization purpose
     pub authorization_whitelist: Option<Arc<Mutex<HashMap<String, AuthorizationWhitelistRecord>>>>,
 }
@@ -73,6 +84,7 @@ impl NotaryGlobals {
             notary_signing_key,
             notarization_config,
             store: Default::default(),
+            tdn_store: Default::default(),
             authorization_whitelist,
         }
     }

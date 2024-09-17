@@ -7,9 +7,9 @@ use crate::tls::{state as prover_state, Prover};
 /// The state of an HTTP prover
 pub trait State: sealed::Sealed {}
 
-/// Connection closed state.
-pub struct Closed {
-    pub(super) prover: Prover<prover_state::Closed>,
+/// Connection closed state. TDN mode.
+pub struct TdnClosed {
+    pub(super) prover: Prover<prover_state::TdnClosed>,
     pub(super) transcript: HttpTranscript,
 }
 
@@ -19,12 +19,12 @@ pub struct Notarize {
     pub(super) transcript: HttpTranscript,
 }
 
-impl State for Closed {}
+impl State for TdnClosed {}
 impl State for Notarize {}
 
 mod sealed {
     pub trait Sealed {}
 
-    impl Sealed for super::Closed {}
+    impl Sealed for super::TdnClosed {}
     impl Sealed for super::Notarize {}
 }

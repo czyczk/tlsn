@@ -6,6 +6,7 @@ members = [
     "tlsn-prover",
     "tlsn-formats",
     "tlsn-server-fixture",
+    "tdn-core",
     "tdn-verifier",
     "tdn-prover",
     "tests-integration",
@@ -21,6 +22,7 @@ tlsn-prover = { path = "tlsn-prover" }
 tlsn-verifier = { path = "tlsn-verifier" }
 tlsn-server-fixture = { path = "tlsn-server-fixture" }
 tlsn-formats = { path = "tlsn-formats" }
+tdn-core = { path = "tdn-core" }
 tdn-prover = { path = "tdn-prover" }
 tdn-verifier = { path = "tdn-verifier" }
 

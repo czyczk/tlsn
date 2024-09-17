@@ -66,6 +66,7 @@ impl ProverConfig {
                             .unwrap(),
                     )
                     .handshake_commit(true)
+                    .tdn_mode(true)
                     .build()
                     .unwrap(),
             )

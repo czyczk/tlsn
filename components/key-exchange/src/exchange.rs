@@ -65,6 +65,10 @@ pub struct KeyExchangeCore<PS, PR, E> {
     config: KeyExchangeConfig,
     /// The state of the protocol
     state: State,
+    /// TDN mode.
+    tdn_mode: bool,
+    /// Follower public key. Only present and necessary in TDN mode. Set on the leader side.
+    follower_public_key: Option<PublicKey>,
 }
 
 impl<PS, PR, E> Debug for KeyExchangeCore<PS, PR, E>
@@ -82,6 +86,8 @@ where
             .field("private_key", &"{{ ... }}")
             .field("server_key", &self.server_key)
             .field("config", &self.config)
+            .field("tdn_mode", &self.tdn_mode)
+            .field("follower_public_key", &self.follower_public_key)
             .finish()
     }
 }
@@ -123,7 +129,44 @@ where
             server_key: None,
             config,
             state: State::Initialized,
+            tdn_mode: false,
+            follower_public_key: None,
         }
+    }
+
+    /// Creates a new [KeyExchangeCore] with a specified TDN mode toggle.
+    ///
+    /// * `channel`                 - The channel for sending messages between leader and follower
+    /// * `point_addition_sender`   - The point addition sender instance used during key exchange
+    /// * `point_addition_receiver` - The point addition receiver instance used during key exchange
+    /// * `executor`                - The MPC executor
+    /// * `config`                  - The config used for the key exchange protocol
+    /// * `tdn_mode`                - The TDN mode toggle
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            level = "info",
+            skip(channel, executor, point_addition_sender, point_addition_receiver),
+            ret
+        )
+    )]
+    pub fn new_with_tdn_mode(
+        channel: KeyExchangeChannel,
+        point_addition_sender: PS,
+        point_addition_receiver: PR,
+        executor: E,
+        config: KeyExchangeConfig,
+        tdn_mode: bool,
+    ) -> Self {
+        let mut core = Self::new(
+            channel,
+            point_addition_sender,
+            point_addition_receiver,
+            executor,
+            config,
+        );
+        core.tdn_mode = tdn_mode;
+        core
     }
 
     async fn compute_pms_shares(&mut self) -> Result<(P256, P256), KeyExchangeError> {
@@ -216,10 +259,18 @@ where
             }
         };
 
-        let private_key = self
-            .private_key
-            .take()
-            .ok_or(KeyExchangeError::NoPrivateKey)?;
+        let private_key = if self.tdn_mode {
+            // In TDN mode we need to keep the private key. It'll still be used after this process.
+            self.private_key
+                .as_ref()
+                .cloned()
+                .ok_or(KeyExchangeError::NoPrivateKey)?
+        } else {
+            // In non-TDN mode we consume the private key.
+            self.private_key
+                .take()
+                .ok_or(KeyExchangeError::NoPrivateKey)?
+        };
 
         // Compute the leader's/follower's share of the pre-master secret
         //
@@ -351,6 +402,24 @@ where
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "info", skip(self)))]
     fn set_server_key(&mut self, server_key: PublicKey) {
         self.server_key = Some(server_key);
+    }
+
+    /// Get the private key of the party behind this instance. Either leader or follower. Only necessary in TDN mode.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "info", skip(self), ret)
+    )]
+    fn private_key(&self) -> Option<SecretKey> {
+        self.private_key.clone()
+    }
+
+    /// Get the follower public key. Only present and necessary in TDN mode.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "info", skip(self), ret)
+    )]
+    fn follower_public_key(&self) -> Option<PublicKey> {
+        self.follower_public_key
     }
 
     async fn setup(&mut self) -> Result<Pms, KeyExchangeError> {
@@ -495,6 +564,10 @@ where
                 }
 
                 let follower_public_key: PublicKey = message.try_into()?;
+
+                if self.tdn_mode {
+                    self.follower_public_key = Some(follower_public_key);
+                }
 
                 // TDN log
                 {

@@ -29,13 +29,13 @@ pub struct HttpProver<S: state::State> {
     state: S,
 }
 
-impl HttpProver<state::Closed> {
+impl HttpProver<state::TdnClosed> {
     /// Creates a new HTTP prover.
-    pub fn new(prover: Prover<prover_state::Closed>) -> Result<Self, HttpProverError> {
+    pub fn new(prover: Prover<prover_state::TdnClosed>) -> Result<Self, HttpProverError> {
         let transcript = HttpTranscript::parse(prover.sent_transcript(), prover.recv_transcript())?;
 
         Ok(Self {
-            state: state::Closed { prover, transcript },
+            state: state::TdnClosed { prover, transcript },
         })
     }
 }

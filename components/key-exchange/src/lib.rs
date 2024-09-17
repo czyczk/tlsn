@@ -89,6 +89,12 @@ pub trait KeyExchange {
     /// Set the server's public key
     fn set_server_key(&mut self, server_key: PublicKey);
 
+    /// Get the private key of the party behind this instance. Either leader or follower. Only necessary in TDN mode.
+    fn private_key(&self) -> Option<SecretKey>;
+
+    /// Get the follower public key. Only present and necessary in TDN mode.
+    fn follower_public_key(&self) -> Option<PublicKey>;
+
     /// Performs any necessary one-time setup, returning a reference to the PMS.
     ///
     /// The PMS will not be assigned until `compute_pms` is called.

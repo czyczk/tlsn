@@ -118,6 +118,7 @@ pub async fn tcp_tdn_collect(
     match run_tdn_collect(
         stream,
         &notary_globals.notary_signing_key,
+        notary_globals.tdn_store,
         &session_id,
         max_sent_data,
         max_recv_data,

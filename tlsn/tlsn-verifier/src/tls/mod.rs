@@ -175,6 +175,10 @@ impl Verifier<state::Setup> {
             server_key: server_ephemeral_key,
             bytes_sent: sent_len,
             bytes_recv: recv_len,
+            random_client: _random_client,
+            random_server: _random_server,
+            priv_key_session_notary: _priv_key_session_notary,
+            ciphertext_application_data_server: _ciphertext_application_data_server,
         } = futures::select! {
             res = mpc_fut.fuse() => res?,
             _ = &mut mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,

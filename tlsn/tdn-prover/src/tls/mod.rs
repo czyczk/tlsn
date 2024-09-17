@@ -9,12 +9,13 @@ mod config;
 mod error;
 mod future;
 mod notarize;
-mod prove;
 pub mod state;
 
 pub use config::{ProverConfig, ProverConfigBuilder, ProverConfigBuilderError};
 pub use error::ProverError;
 pub use future::ProverFuture;
+use tdn_core::session::{TdnCollectLeaderResult, TdnSessionId};
+use tls_core::key::PublicKey;
 use tlsn_common::{
     mux::{attach_mux, MuxControl},
     Role,
@@ -162,19 +163,33 @@ impl Prover<state::Setup> {
 
                 Ok(Prover {
                     config: self.config,
-                    state: state::Closed {
-                        mux_ctrl,
-                        mux_fut,
-                        vm,
-                        ot_fut,
-                        gf2,
-                        start_time,
-                        handshake_decommitment: mpc_tls_data
-                            .handshake_decommitment
-                            .expect("handshake was committed"),
-                        server_public_key: mpc_tls_data.server_public_key,
-                        transcript_tx: Transcript::new(sent),
-                        transcript_rx: Transcript::new(recv),
+                    state: state::TdnClosed {
+                        closed: state::Closed {
+                            mux_ctrl,
+                            mux_fut,
+                            vm,
+                            ot_fut,
+                            gf2,
+                            start_time,
+                            handshake_decommitment: mpc_tls_data
+                                .handshake_decommitment
+                                .expect("handshake was committed"),
+                            server_public_key: mpc_tls_data.server_public_key,
+                            transcript_tx: Transcript::new(sent),
+                            transcript_rx: Transcript::new(recv),
+                        },
+                        random_client: mpc_tls_data.client_random.0,
+                        random_server: mpc_tls_data.server_random.0,
+                        pub_key_session_notary: mpc_tls_data.notary_session_public_key.unwrap(),
+                        pub_key_session_prover: PublicKey::from(
+                            mpc_tls_data.private_key.unwrap().public_key(),
+                        ),
+                        curve_params: mpc_tls_data.server_kx_details.kx_params().to_owned(),
+                        sig_scheme_server: mpc_tls_data.server_kx_details.kx_sig().scheme,
+                        sig_kx_server: mpc_tls_data.server_kx_details.kx_sig().sig.0.clone(),
+                        ciphertext_application_data_server: mpc_tls_data
+                            .ciphertext_application_data_server
+                            .unwrap(),
                     },
                 })
             };
@@ -193,21 +208,34 @@ impl Prover<state::Setup> {
     }
 }
 
-impl Prover<state::Closed> {
+impl Prover<state::TdnClosed> {
     /// Returns the transcript of the sent requests
     pub fn sent_transcript(&self) -> &Transcript {
-        &self.state.transcript_tx
+        &self.state.closed.transcript_tx
     }
 
     /// Returns the transcript of the received responses
     pub fn recv_transcript(&self) -> &Transcript {
-        &self.state.transcript_rx
+        &self.state.closed.transcript_rx
     }
 
     /// Creates an HTTP prover.
     #[cfg(feature = "formats")]
-    pub fn to_http(self) -> Result<HttpProver<http_state::Closed>, HttpProverError> {
+    pub fn to_http(self) -> Result<HttpProver<http_state::TdnClosed>, HttpProverError> {
         HttpProver::new(self)
+    }
+
+    /// Consumes this prover and generates a [`TdnCollectLeaderResult`].
+    pub fn finalize(self) -> TdnCollectLeaderResult {
+        TdnCollectLeaderResult {
+            session_id: TdnSessionId::new(
+                self.state.random_client.to_vec(),
+                self.state.random_server.to_vec(),
+            ),
+            random_client: self.state.random_client.to_vec(),
+            random_server: self.state.random_server.to_vec(),
+            ciphertext_application_data_server: self.state.ciphertext_application_data_server,
+        }
     }
 }
 

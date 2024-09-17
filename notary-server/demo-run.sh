@@ -1,1 +1,1 @@
-cargo run -- --config-file ./demo-config.yaml
+RUST_BACKTRACE=1 cargo run -- --config-file ./demo-config.yaml

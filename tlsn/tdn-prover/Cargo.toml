@@ -26,6 +26,7 @@ tlsn-core.workspace = true
 tlsn-common.workspace = true
 tlsn-formats = { workspace = true, optional = true }
 tlsn-tls-mpc.workspace = true
+tdn-core.workspace = true
 
 tlsn-utils.workspace = true
 tlsn-utils-aio.workspace = true

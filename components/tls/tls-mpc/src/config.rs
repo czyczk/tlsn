@@ -82,6 +82,9 @@ pub struct MpcTlsCommonConfig {
     /// Whether the leader commits to the handshake data.
     #[builder(default = "true")]
     handshake_commit: bool,
+    /// Whether to use TDN mode.
+    #[builder(default = "false")]
+    tdn_mode: bool,
 }
 
 impl MpcTlsCommonConfig {
@@ -113,6 +116,11 @@ impl MpcTlsCommonConfig {
     /// Whether the leader commits to the handshake data.
     pub fn handshake_commit(&self) -> bool {
         self.handshake_commit
+    }
+
+    /// Whether to use TDN mode.
+    pub fn tdn_mode(&self) -> bool {
+        self.tdn_mode
     }
 }
 

@@ -2,6 +2,8 @@ pub mod axum_websocket;
 pub mod tcp;
 pub mod websocket;
 
+use std::{collections::HashMap, sync::Arc};
+
 use async_trait::async_trait;
 use axum::{
     extract::{rejection::JsonRejection, FromRequestParts, Query, State},
@@ -11,9 +13,13 @@ use axum::{
 use axum_macros::debug_handler;
 use chrono::Utc;
 use p256::ecdsa::{Signature, SigningKey};
+use tdn_core::session::TdnSessionData;
 use tdn_verifier::tls::{TdnVerifier, TdnVerifierConfig};
 use tlsn_verifier::tls::{Verifier, VerifierConfig};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::Mutex as AsyncMutex,
+};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{debug, error, info, trace};
 use uuid::Uuid;
@@ -21,7 +27,7 @@ use uuid::Uuid;
 use crate::{
     domain::notary::{
         NotarizationRequestQuery, NotarizationSessionRequest, NotarizationSessionResponse,
-        NotaryGlobals, SessionData,
+        NotaryGlobals, SessionData, TdnCollectRequest,
     },
     error::NotaryServerError,
     service::{
@@ -116,7 +122,7 @@ pub async fn upgrade_protocol(
 pub async fn upgrade_protocol_for_tdn_collect(
     protocol_upgrade: ProtocolUpgrade,
     State(notary_globals): State<NotaryGlobals>,
-    Query(params): Query<NotarizationRequestQuery>,
+    Query(params): Query<TdnCollectRequest>,
 ) -> Response {
     info!("Received upgrade protocol request");
     let session_id = params.session_id;
@@ -255,6 +261,7 @@ pub async fn notary_service<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 pub async fn run_tdn_collect<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     socket: T,
     signing_key: &SigningKey,
+    tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     session_id: &str,
     max_sent_data: Option<usize>,
     max_recv_data: Option<usize>,
@@ -276,7 +283,7 @@ pub async fn run_tdn_collect<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>
     let config = config_builder.build()?;
 
     TdnVerifier::new(config)
-        .collect::<_, Signature>(socket.compat(), signing_key)
+        .collect::<_, Signature>(socket.compat(), signing_key, tdn_store)
         .await?;
 
     Ok(())

@@ -55,6 +55,9 @@ pub struct MpcTlsFollower {
     close_notify: bool,
     /// Whether the leader has committed to the transcript.
     committed: bool,
+
+    /// Whether TDN mode is enabled.
+    tdn_mode: bool,
 }
 
 /// Data collected by the MPC-TLS follower.
@@ -68,6 +71,15 @@ pub struct MpcTlsFollowerData {
     pub bytes_sent: usize,
     /// The total number of bytes received
     pub bytes_recv: usize,
+
+    /// Client random. Only present and necessary in TDN mode.
+    pub random_client: Option<Vec<u8>>,
+    /// Server random. Only present and necessary in TDN mode.
+    pub random_server: Option<Vec<u8>>,
+    /// Notary private key used in this session. Only present and necessary in TDN mode.
+    pub priv_key_session_notary: Option<Vec<u8>>,
+    /// Ciphertext of the application data fromt the server collected in this session. Only present and necessary in TDN mode.
+    pub ciphertext_application_data_server: Option<Vec<u8>>,
 }
 
 impl ludi::Actor for MpcTlsFollower {
@@ -84,12 +96,43 @@ impl ludi::Actor for MpcTlsFollower {
         let Closed {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
         } = {
             if !self.state.is_closed() {
                 self.close_connection()?;
             }
             self.state.take().try_into_closed()?
         };
+
+        if self.tdn_mode {
+            if random_client.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "client random is missing in TDN mode",
+                ));
+            }
+            if random_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "server random is missing in TDN mode",
+                ));
+            }
+            if priv_key_session_notary.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "notary private key is missing in TDN mode",
+                ));
+            }
+            if ciphertext_application_data_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "ciphertext of the application data from the server is missing in TDN mode",
+                ));
+            }
+        }
 
         let bytes_sent = self.encrypter.sent_bytes();
         let bytes_recv = self.decrypter.recv_bytes();
@@ -99,6 +142,10 @@ impl ludi::Actor for MpcTlsFollower {
             server_key,
             bytes_sent,
             bytes_recv,
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
         })
     }
 }
@@ -128,6 +175,7 @@ impl MpcTlsFollower {
 
         Self {
             state: State::Init,
+            tdn_mode: config.common().tdn_mode(),
             config,
             _sink,
             stream: Some(stream),
@@ -312,7 +360,24 @@ impl MpcTlsFollower {
     async fn compute_key_exchange(
         &mut self,
         handshake_commitment: Option<Hash>,
+        random_client: Option<Vec<u8>>,
+        random_server: Option<Vec<u8>>,
     ) -> Result<(), MpcTlsError> {
+        if self.tdn_mode {
+            if random_client.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::PeerMisbehaved,
+                    "client random is missing in TDN mode",
+                ));
+            }
+            if random_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::PeerMisbehaved,
+                    "server random is missing in TDN mode",
+                ));
+            }
+        }
+
         self.state.take().try_into_client_key()?;
 
         if self.config.common().handshake_commit() && handshake_commitment.is_none() {
@@ -343,6 +408,13 @@ impl MpcTlsFollower {
                 NamedGroup::secp256r1,
                 server_key.to_encoded_point(false).as_bytes(),
             ),
+            random_client: if self.tdn_mode { random_client } else { None },
+            random_server: if self.tdn_mode { random_server } else { None },
+            priv_key_session_notary: if self.tdn_mode {
+                self.ke.private_key().map(|it| it.to_bytes().to_vec())
+            } else {
+                None
+            },
         });
 
         Ok(())
@@ -356,6 +428,9 @@ impl MpcTlsFollower {
         let Ke {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
         } = self.state.take().try_into_ke()?;
 
         self.prf.compute_client_finished_vd_blind().await?;
@@ -363,6 +438,9 @@ impl MpcTlsFollower {
         self.state = State::Cf(Cf {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
         });
 
         Ok(())
@@ -376,6 +454,9 @@ impl MpcTlsFollower {
         let Sf {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
         } = self.state.take().try_into_sf()?;
 
         self.prf.compute_server_finished_vd_blind().await?;
@@ -384,6 +465,10 @@ impl MpcTlsFollower {
             handshake_commitment,
             server_key,
             buffer: Default::default(),
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server: Default::default(),
         });
 
         Ok(())
@@ -397,6 +482,9 @@ impl MpcTlsFollower {
         let Cf {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
         } = self.state.take().try_into_cf()?;
 
         self.encrypter
@@ -406,6 +494,9 @@ impl MpcTlsFollower {
         self.state = State::Sf(Sf {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
         });
 
         Ok(())
@@ -466,13 +557,22 @@ impl MpcTlsFollower {
     fn commit_message(&mut self, payload: Vec<u8>) -> Result<(), MpcTlsError> {
         self.is_accepting_messages()?;
         self.check_transcript_length(Direction::Recv, payload.len())?;
-        let Active { buffer, .. } = self.state.try_as_active_mut()?;
+        let Active {
+            buffer,
+            ciphertext_application_data_server,
+            ..
+        } = self.state.try_as_active_mut()?;
 
         buffer.push_back(OpaqueMessage {
             typ: ContentType::ApplicationData,
             version: ProtocolVersion::TLSv1_2,
-            payload: Payload::new(payload),
+            payload: Payload::new(payload.clone()),
         });
+
+        // Store the ciphertext of the application data from the server in TDN mode.
+        if self.tdn_mode {
+            *ciphertext_application_data_server = Some(payload);
+        }
 
         Ok(())
     }
@@ -568,6 +668,10 @@ impl MpcTlsFollower {
             handshake_commitment,
             server_key,
             buffer,
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
         } = self.state.take().try_into_active()?;
 
         if !buffer.is_empty() {
@@ -577,9 +681,40 @@ impl MpcTlsFollower {
             ));
         }
 
+        if self.tdn_mode {
+            if random_client.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "client random is missing in TDN mode",
+                ));
+            }
+            if random_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "server random is missing in TDN mode",
+                ));
+            }
+            if priv_key_session_notary.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "notary private key is missing in TDN mode",
+                ));
+            }
+            if ciphertext_application_data_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::State,
+                    "ciphertext of the application data from the server is missing in TDN mode",
+                ));
+            }
+        }
+
         self.state = State::Closed(Closed {
             handshake_commitment,
             server_key,
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
         });
 
         Ok(())
@@ -610,9 +745,16 @@ impl MpcTlsFollower {
         ctx.try_or_stop(|_| self.compute_client_key()).await;
     }
 
-    pub async fn compute_key_exchange(&mut self, handshake_commitment: Option<Hash>) {
-        ctx.try_or_stop(|_| self.compute_key_exchange(handshake_commitment))
-            .await;
+    pub async fn compute_key_exchange(
+        &mut self,
+        handshake_commitment: Option<Hash>,
+        server_random: Option<Vec<u8>>,
+        client_random: Option<Vec<u8>>,
+    ) {
+        ctx.try_or_stop(|_| {
+            self.compute_key_exchange(handshake_commitment, server_random, client_random)
+        })
+        .await;
     }
 
     pub async fn client_finished_vd(&mut self) {
@@ -703,18 +845,36 @@ mod state {
     pub(super) struct Ke {
         pub(super) handshake_commitment: Option<Hash>,
         pub(super) server_key: PublicKey,
+        /// Client random. Only present and necessary in TDN mode.
+        pub(super) random_client: Option<Vec<u8>>,
+        /// Server random. Only present and necessary in TDN mode.
+        pub(super) random_server: Option<Vec<u8>>,
+        /// Notary private key used in this session. Only present and necessary in TDN mode.
+        pub(super) priv_key_session_notary: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
     pub(super) struct Cf {
         pub(super) handshake_commitment: Option<Hash>,
         pub(super) server_key: PublicKey,
+        /// Client random. Only present and necessary in TDN mode.
+        pub(super) random_client: Option<Vec<u8>>,
+        /// Server random. Only present and necessary in TDN mode.
+        pub(super) random_server: Option<Vec<u8>>,
+        /// Notary private key used in this session. Only present and necessary in TDN mode.
+        pub(super) priv_key_session_notary: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
     pub(super) struct Sf {
         pub(super) handshake_commitment: Option<Hash>,
         pub(super) server_key: PublicKey,
+        /// Client random. Only present and necessary in TDN mode.
+        pub(super) random_client: Option<Vec<u8>>,
+        /// Server random. Only present and necessary in TDN mode.
+        pub(super) random_server: Option<Vec<u8>>,
+        /// Notary private key used in this session. Only present and necessary in TDN mode.
+        pub(super) priv_key_session_notary: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -726,12 +886,28 @@ mod state {
         /// The follower must verify the authenticity of these messages with AEAD verification
         /// (i.e. by verifying the authentication tag).
         pub(super) buffer: VecDeque<OpaqueMessage>,
+        /// Client random. Only present and necessary in TDN mode.
+        pub(super) random_client: Option<Vec<u8>>,
+        /// Server random. Only present and necessary in TDN mode.
+        pub(super) random_server: Option<Vec<u8>>,
+        /// Notary private key used in this session. Only present and necessary in TDN mode.
+        pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
+        pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
     pub(super) struct Closed {
         pub(super) handshake_commitment: Option<Hash>,
         pub(super) server_key: PublicKey,
+        /// Client random. Only present and necessary in TDN mode.
+        pub(super) random_client: Option<Vec<u8>>,
+        /// Server random. Only present and necessary in TDN mode.
+        pub(super) random_server: Option<Vec<u8>>,
+        /// Notary private key used in this session. Only present and necessary in TDN mode.
+        pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
+        pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }
 }
 

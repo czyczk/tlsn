@@ -10,8 +10,14 @@ use base64::{prelude::BASE64_STANDARD, Engine};
 pub use config::{TdnVerifierConfig, TdnVerifierConfigBuilder, TdnVerifierConfigBuilderError};
 pub use error::TdnVerifierError;
 use mpz_core::serialize::CanonicalSerialize;
+use tdn_core::session::{TdnSessionData, TdnSessionId};
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::tls::future::OTFuture;
 use future::MuxFuture;
@@ -86,7 +92,10 @@ impl TdnVerifier<state::Initialized> {
         // TDN log
         {
             let encoder_seed_base64 = BASE64_STANDARD.encode(&encoder_seed);
-            info!(encoder_seed = %encoder_seed_base64, "TDN log: MPC setup: encoder seed generated.");
+            println!(
+                "TDN log: MPC setup: encoder seed generated. encoder_seed={}",
+                encoder_seed_base64
+            );
         }
 
         let mpc_setup_fut = setup_mpc_backend(&self.config, mux_ctrl.clone(), encoder_seed);
@@ -118,13 +127,14 @@ impl TdnVerifier<state::Initialized> {
         self,
         socket: S,
         signer: &impl Signer<T>,
+        tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     ) -> Result<SessionHeader, TdnVerifierError>
     where
         T: Into<Signature>,
     {
         self.setup(socket)
             .await?
-            .run()
+            .run(tdn_store)
             .await?
             .finalize(signer)
             .await
@@ -133,9 +143,12 @@ impl TdnVerifier<state::Initialized> {
 
 impl TdnVerifier<state::Setup> {
     /// Runs the verifier until the TLS connection is closed.
-    pub async fn run(self) -> Result<TdnVerifier<state::Closed>, TdnVerifierError> {
+    pub async fn run(
+        self,
+        tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
+    ) -> Result<TdnVerifier<state::Closed>, TdnVerifierError> {
         // TDN log
-        tracing::info!("TdnVerifider::run()");
+        println!("TDN log: TdnVerifider::run()");
 
         let state::Setup {
             mux_ctrl,
@@ -161,11 +174,25 @@ impl TdnVerifier<state::Setup> {
             server_key: server_ephemeral_key,
             bytes_sent: sent_len,
             bytes_recv: recv_len,
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
         } = futures::select! {
             res = mpc_fut.fuse() => res?,
-            _ = &mut mux_fut => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
+            _ = &mut mux_fut => {
+                println!("TDN log: Here! I got you! mux_fut ends immaturally. UnexpectedEof");
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
+            }
             res = ot_fut => return Err(res.map(|_| ()).expect_err("future will not return Ok here"))
         };
+
+        let random_client = random_client.expect("random client is not set");
+        let random_server = random_server.expect("random server is not set");
+        let priv_key_session_notary =
+            priv_key_session_notary.expect("notary private key is not set");
+        let ciphertext_application_data_server = ciphertext_application_data_server
+            .expect("server application data ciphertext is not set");
 
         // TDN log
         {
@@ -175,18 +202,36 @@ impl TdnVerifier<state::Setup> {
                 "group": server_ephemeral_key.group,
                 "key": BASE64_STANDARD.encode(server_ephemeral_key.key.to_bytes()),
             });
-            info!(
-                handshake_commitment = ?handshake_commitment_base64,
-                server_key = ?server_key_json,
-                "TDN log: MPC run (MpcTlsFollowerData).",
+            println!(
+                "TDN log: MPC run (MpcTlsFollowerData). handshake_commitment={:?}; server_key={}",
+                handshake_commitment_base64, server_key_json,
             );
         }
 
         #[cfg(feature = "tracing")]
         info!("Finished TLS session");
 
+        println!("Finished TLS session");
+
         // TODO: We should be able to skip this commitment and verify the handshake directly.
         let handshake_commitment = handshake_commitment.expect("handshake commitment is set");
+
+        // Persist the TDN session data in TDN mode.
+        let tdn_session_data = TdnSessionData {
+            session_id: TdnSessionId::new(random_client.clone(), random_server.clone()),
+            random_client,
+            random_server,
+            priv_key_session_notary,
+            ciphertext_application_data_server,
+            commitment_handshake: handshake_commitment.as_bytes().to_vec(),
+        };
+        tdn_store.lock().await.insert(
+            tdn_session_data.session_id.to_base64_concat(),
+            tdn_session_data.clone(),
+        );
+
+        // TDN log
+        println!("TDN log: TDN session data stored");
 
         Ok(TdnVerifier {
             config: self.config,

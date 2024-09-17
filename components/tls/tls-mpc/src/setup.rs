@@ -69,7 +69,7 @@ where
     };
 
     // Key exchange
-    let ke = ke::KeyExchangeCore::new(
+    let ke = ke::KeyExchangeCore::new_with_tdn_mode(
         ke_channel,
         pa::MpcPointAddition::new(pa_role, p256_send),
         pa::MpcPointAddition::new(pa_role, p256_recv),
@@ -79,6 +79,7 @@ where
             .role(ke_role)
             .build()
             .unwrap(),
+        config.tdn_mode(),
     );
 
     // PRF

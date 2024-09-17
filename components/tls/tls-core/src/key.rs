@@ -61,6 +61,15 @@ impl From<crate::msgs::handshake::KeyShareEntry> for PublicKey {
     }
 }
 
+impl From<p256::PublicKey> for PublicKey {
+    fn from(k: p256::PublicKey) -> Self {
+        Self::new(
+            NamedGroup::secp256r1,
+            &p256::EncodedPoint::from(k).to_bytes(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::Certificate;
