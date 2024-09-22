@@ -7,6 +7,7 @@ use mpz_garble_core::{encoding_state, EncodedValue};
 use mpz_ot::actor::kos::{SharedReceiver, SharedSender};
 use mpz_share_conversion::{ConverterSender, Gf2_128};
 use std::collections::HashMap;
+use tdn_core::proof::Certificates;
 use tls_client::SignatureScheme;
 use tls_core::{handshake::HandshakeData, key::PublicKey};
 use tls_mpc::MpcTlsLeader;
@@ -63,6 +64,7 @@ pub struct TdnClosed {
     pub(crate) curve_params: Vec<u8>,
     pub(crate) sig_scheme_server: SignatureScheme,
     pub(crate) sig_kx_server: Vec<u8>,
+    pub(crate) certificates_server: Certificates,
     pub(crate) ciphertext_application_data_server: Vec<u8>,
 }
 
@@ -86,13 +88,20 @@ pub struct Notarize {
     pub(crate) transcript_rx: Transcript,
 
     pub(crate) builder: TranscriptCommitmentBuilder,
+
+    pub(crate) pub_key_session_prover: PublicKey,
+    pub(crate) certificates_server: Certificates,
 }
 
 opaque_debug::implement!(Notarize);
 
-impl From<Closed> for Notarize {
-    fn from(state: Closed) -> Self {
-        let encodings = collect_encodings(&state.vm, &state.transcript_tx, &state.transcript_rx);
+impl From<TdnClosed> for Notarize {
+    fn from(state: TdnClosed) -> Self {
+        let encodings = collect_encodings(
+            &state.closed.vm,
+            &state.closed.transcript_tx,
+            &state.closed.transcript_rx,
+        );
 
         let encoding_provider = Box::new(move |ids: &[&str]| {
             ids.iter().map(|id| encodings.get(*id).cloned()).collect()
@@ -100,22 +109,24 @@ impl From<Closed> for Notarize {
 
         let builder = TranscriptCommitmentBuilder::new(
             encoding_provider,
-            state.transcript_tx.data().len(),
-            state.transcript_rx.data().len(),
+            state.closed.transcript_tx.data().len(),
+            state.closed.transcript_rx.data().len(),
         );
 
         Self {
-            mux_ctrl: state.mux_ctrl,
-            mux_fut: state.mux_fut,
-            vm: state.vm,
-            ot_fut: state.ot_fut,
-            gf2: state.gf2,
-            start_time: state.start_time,
-            handshake_decommitment: state.handshake_decommitment,
-            server_public_key: state.server_public_key,
-            transcript_tx: state.transcript_tx,
-            transcript_rx: state.transcript_rx,
+            mux_ctrl: state.closed.mux_ctrl,
+            mux_fut: state.closed.mux_fut,
+            vm: state.closed.vm,
+            ot_fut: state.closed.ot_fut,
+            gf2: state.closed.gf2,
+            start_time: state.closed.start_time,
+            handshake_decommitment: state.closed.handshake_decommitment,
+            server_public_key: state.closed.server_public_key,
+            transcript_tx: state.closed.transcript_tx,
+            transcript_rx: state.closed.transcript_rx,
             builder,
+            pub_key_session_prover: state.pub_key_session_prover,
+            certificates_server: state.certificates_server,
         }
     }
 }

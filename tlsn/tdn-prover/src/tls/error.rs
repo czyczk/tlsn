@@ -28,6 +28,8 @@ pub enum ProverError {
     CommitmentError(#[from] CommitmentError),
     #[error("Range exceeds transcript length")]
     InvalidRange,
+    #[error("Invalid certificates are collected")]
+    InvalidCertificates,
 }
 
 impl From<MpcTlsError> for ProverError {

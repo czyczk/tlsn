@@ -29,3 +29,5 @@ logging:
 authorization:
   enabled: false
   whitelist-csv-path: "./fixture/auth/whitelist.csv"
+
+settlement-addr: "0xe2d137463b9a22dabad31f1ba43acc0532724bab"

@@ -178,6 +178,7 @@ impl Verifier<state::Setup> {
             random_client: _random_client,
             random_server: _random_server,
             priv_key_session_notary: _priv_key_session_notary,
+            kx_params: _kx_params,
             ciphertext_application_data_server: _ciphertext_application_data_server,
         } = futures::select! {
             res = mpc_fut.fuse() => res?,

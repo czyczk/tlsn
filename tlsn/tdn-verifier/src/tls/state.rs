@@ -4,6 +4,7 @@ use mpz_core::hash::Hash;
 use mpz_garble::protocol::deap::{DEAPThread, DEAPVm};
 use mpz_ot::actor::kos::{SharedReceiver, SharedSender};
 use mpz_share_conversion::{ConverterReceiver, Gf2_128};
+use tdn_core::session::TdnSessionData;
 use tls_core::key::PublicKey;
 use tls_mpc::MpcTlsFollower;
 use tlsn_common::mux::MuxControl;
@@ -52,6 +53,8 @@ pub struct Closed {
     pub(crate) handshake_commitment: Hash,
     pub(crate) sent_len: usize,
     pub(crate) recv_len: usize,
+
+    pub(crate) tdn_session_data: TdnSessionData,
 }
 
 opaque_debug::implement!(Closed);
@@ -73,6 +76,8 @@ pub struct Notarize {
     pub(crate) handshake_commitment: Hash,
     pub(crate) sent_len: usize,
     pub(crate) recv_len: usize,
+
+    pub(crate) tdn_session_data: TdnSessionData,
 }
 
 opaque_debug::implement!(Notarize);
@@ -93,6 +98,7 @@ impl From<Closed> for Notarize {
             handshake_commitment: value.handshake_commitment,
             sent_len: value.sent_len,
             recv_len: value.recv_len,
+            tdn_session_data: value.tdn_session_data,
         }
     }
 }

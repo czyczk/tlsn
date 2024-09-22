@@ -2,20 +2,20 @@
 
 use tlsn_formats::http::HttpTranscript;
 
-use crate::tls::{state as prover_state, Prover};
+use crate::tls::{state as prover_state, TdnProver};
 
 /// The state of an HTTP prover
 pub trait State: sealed::Sealed {}
 
 /// Connection closed state. TDN mode.
 pub struct TdnClosed {
-    pub(super) prover: Prover<prover_state::TdnClosed>,
+    pub(super) prover: TdnProver<prover_state::TdnClosed>,
     pub(super) transcript: HttpTranscript,
 }
 
 /// Notarizing state.
 pub struct Notarize {
-    pub(super) prover: Prover<prover_state::Notarize>,
+    pub(super) prover: TdnProver<prover_state::Notarize>,
     pub(super) transcript: HttpTranscript,
 }
 

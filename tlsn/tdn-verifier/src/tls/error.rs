@@ -13,6 +13,10 @@ pub enum TdnVerifierError {
     MpcError(Box<dyn Error + Send + Sync + 'static>),
     #[error("Range exceeds transcript length")]
     InvalidRange,
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+    #[error("Error occurred while using private key: {0}")]
+    PrivateKeyError(String),
 }
 
 impl From<MpcTlsError> for TdnVerifierError {

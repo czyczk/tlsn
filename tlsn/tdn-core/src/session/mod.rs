@@ -1,8 +1,6 @@
 //! TLS session types.
 
-pub mod certificate;
 pub mod ciphertext;
-pub mod commitment;
 pub mod keyexchange;
 pub mod settlement;
 
@@ -51,6 +49,8 @@ pub struct TdnSessionData {
     pub random_server: Vec<u8>,
     /// Notary private key used in this session.
     pub priv_key_session_notary: Vec<u8>,
+    /// Key exchange params.
+    pub kx_params: Vec<u8>,
     /// Ciphertext of the application data from the server collected in this session.
     pub ciphertext_application_data_server: Vec<u8>,
     /// Handshake commitment.

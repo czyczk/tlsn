@@ -14,7 +14,11 @@ pub mod state;
 pub use config::{ProverConfig, ProverConfigBuilder, ProverConfigBuilderError};
 pub use error::ProverError;
 pub use future::ProverFuture;
-use tdn_core::session::{TdnCollectLeaderResult, TdnSessionId};
+use state::Notarize;
+use tdn_core::{
+    proof::Certificates,
+    session::{TdnCollectLeaderResult, TdnSessionId},
+};
 use tls_core::key::PublicKey;
 use tlsn_common::{
     mux::{attach_mux, MuxControl},
@@ -46,12 +50,12 @@ use tracing::{debug, debug_span, instrument, Instrument};
 
 /// A prover instance.
 #[derive(Debug)]
-pub struct Prover<T: state::ProverState> {
+pub struct TdnProver<T: state::ProverState> {
     config: ProverConfig,
     state: T,
 }
 
-impl Prover<state::Initialized> {
+impl TdnProver<state::Initialized> {
     /// Creates a new prover.
     ///
     /// # Arguments
@@ -75,7 +79,7 @@ impl Prover<state::Initialized> {
     pub async fn setup<S: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
         self,
         socket: S,
-    ) -> Result<Prover<state::Setup>, ProverError> {
+    ) -> Result<TdnProver<state::Setup>, ProverError> {
         let (mut mux, mux_ctrl) = attach_mux(socket, Role::Prover);
 
         let mut mux_fut = MuxFuture {
@@ -88,7 +92,7 @@ impl Prover<state::Initialized> {
             _ = (&mut mux_fut).fuse() => return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
         };
 
-        Ok(Prover {
+        Ok(TdnProver {
             config: self.config,
             state: state::Setup {
                 mux_ctrl,
@@ -102,7 +106,7 @@ impl Prover<state::Initialized> {
     }
 }
 
-impl Prover<state::Setup> {
+impl TdnProver<state::Setup> {
     /// Connects to the server using the provided socket.
     ///
     /// Returns a handle to the TLS connection, a future which returns the prover once the connection is
@@ -161,7 +165,7 @@ impl Prover<state::Setup> {
                 let ((sent, recv), mpc_tls_data) =
                     futures::try_join!(conn_fut, mpc_fut.map_err(ProverError::from))?;
 
-                Ok(Prover {
+                Ok(TdnProver {
                     config: self.config,
                     state: state::TdnClosed {
                         closed: state::Closed {
@@ -187,6 +191,10 @@ impl Prover<state::Setup> {
                         curve_params: mpc_tls_data.server_kx_details.kx_params().to_owned(),
                         sig_scheme_server: mpc_tls_data.server_kx_details.kx_sig().scheme,
                         sig_kx_server: mpc_tls_data.server_kx_details.kx_sig().sig.0.clone(),
+                        certificates_server: Certificates::try_from(
+                            &mpc_tls_data.server_cert_details,
+                        )
+                        .map_err(|_| ProverError::InvalidCertificates)?,
                         ciphertext_application_data_server: mpc_tls_data
                             .ciphertext_application_data_server
                             .unwrap(),
@@ -208,7 +216,7 @@ impl Prover<state::Setup> {
     }
 }
 
-impl Prover<state::TdnClosed> {
+impl TdnProver<state::TdnClosed> {
     /// Returns the transcript of the sent requests
     pub fn sent_transcript(&self) -> &Transcript {
         &self.state.closed.transcript_tx
@@ -226,7 +234,11 @@ impl Prover<state::TdnClosed> {
     }
 
     /// Consumes this prover and generates a [`TdnCollectLeaderResult`].
-    pub fn finalize(self) -> TdnCollectLeaderResult {
+    pub fn take_collection_result(self) -> TdnCollectLeaderResult {
+        #[cfg(feature = "tracing")]
+        // TDN log
+        tracing::info!("Prover::take_collection_result()");
+
         TdnCollectLeaderResult {
             session_id: TdnSessionId::new(
                 self.state.random_client.to_vec(),
@@ -235,6 +247,17 @@ impl Prover<state::TdnClosed> {
             random_client: self.state.random_client.to_vec(),
             random_server: self.state.random_server.to_vec(),
             ciphertext_application_data_server: self.state.ciphertext_application_data_server,
+        }
+    }
+
+    /// Starts notarization of the TLS session.
+    ///
+    /// If the verifier is a Notary, this function will transition the prover to the next state
+    /// where it can generate commitments to the transcript prior to finalization.
+    pub fn start_notarize(self) -> TdnProver<Notarize> {
+        TdnProver {
+            config: self.config,
+            state: self.state.into(),
         }
     }
 }

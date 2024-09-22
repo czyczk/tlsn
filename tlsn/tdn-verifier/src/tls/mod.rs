@@ -10,11 +10,18 @@ use base64::{prelude::BASE64_STANDARD, Engine};
 pub use config::{TdnVerifierConfig, TdnVerifierConfigBuilder, TdnVerifierConfigBuilderError};
 pub use error::TdnVerifierError;
 use mpz_core::serialize::CanonicalSerialize;
-use tdn_core::session::{TdnSessionData, TdnSessionId};
+use state::Notarize;
+use tdn_core::{
+    proof::ProofNotary,
+    session::{TdnSessionData, TdnSessionId},
+};
 
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex as AsyncMutex;
@@ -35,12 +42,12 @@ use mpz_ot::{
 use mpz_share_conversion as ff;
 use rand::Rng;
 use signature::Signer;
+use tdn_core::signature::Signature;
 use tls_mpc::{setup_components, MpcTlsFollower, MpcTlsFollowerData, TlsRole};
 use tlsn_common::{
     mux::{attach_mux, MuxControl},
     Role,
 };
-use tlsn_core::{SessionHeader, Signature};
 use utils_aio::{duplex::Duplex, mux::MuxChannel};
 
 #[cfg(feature = "tracing")]
@@ -127,23 +134,32 @@ impl TdnVerifier<state::Initialized> {
         self,
         socket: S,
         signer: &impl Signer<T>,
+        settlement_addr: String,
         tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
-    ) -> Result<SessionHeader, TdnVerifierError>
+        commitment_pwd_proof: Vec<u8>,
+        pub_key_consumer: Vec<u8>,
+    ) -> Result<ProofNotary, TdnVerifierError>
     where
         T: Into<Signature>,
     {
         self.setup(socket)
             .await?
-            .run(tdn_store)
+            .run_collection(tdn_store)
             .await?
-            .finalize(signer)
+            .start_notarize()
+            .notarize(
+                signer,
+                settlement_addr,
+                commitment_pwd_proof,
+                pub_key_consumer,
+            )
             .await
     }
 }
 
 impl TdnVerifier<state::Setup> {
-    /// Runs the verifier until the TLS connection is closed.
-    pub async fn run(
+    /// Performs the TLS connection and collects all the necessary data until the connection is closed.
+    pub async fn run_collection(
         self,
         tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     ) -> Result<TdnVerifier<state::Closed>, TdnVerifierError> {
@@ -169,6 +185,10 @@ impl TdnVerifier<state::Setup> {
 
         let (_, mpc_fut) = mpc_tls.run();
 
+        let is_mpc_fut_complete = Arc::new(AtomicBool::new(false));
+        let is_mpc_fut_complete_cloned = Arc::clone(&is_mpc_fut_complete);
+        let mut mpc_fut = Box::pin(mpc_fut.fuse());
+
         let MpcTlsFollowerData {
             handshake_commitment,
             server_key: server_ephemeral_key,
@@ -177,22 +197,40 @@ impl TdnVerifier<state::Setup> {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
         } = futures::select! {
-            res = mpc_fut.fuse() => res?,
+            res = mpc_fut => {
+                is_mpc_fut_complete_cloned.store(true, Ordering::SeqCst);
+                res?
+            }
             _ = &mut mux_fut => {
-                println!("TDN log: Here! I got you! mux_fut ends immaturally. UnexpectedEof");
-                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
+                println!("TDN log: Here! I got you! mux_fut ends immaturelly. UnexpectedEof");
+                // Tolerate this by deferring the error for 1 sec in hope that `mpc_fut` can complete.
+                    println!("TDN log: mux_fut has not ended yet. Should tolerate this by deferring the error for 1 sec.");
+                    let mut timeout = futures_timer::Delay::new(std::time::Duration::from_secs(1)).fuse();
+                let res: MpcTlsFollowerData = futures::select! {
+                    _ = timeout => {
+                            println!("TDN log: mux_fut ends immaturelly. Will return UnexpectedEof.");
+                            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
+                    }
+                    res = mpc_fut => {
+                        is_mpc_fut_complete.store(true, Ordering::SeqCst);
+                        res?
+                    }
+                };
+                res
             }
             res = ot_fut => return Err(res.map(|_| ()).expect_err("future will not return Ok here"))
         };
 
-        let random_client = random_client.expect("random client is not set");
-        let random_server = random_server.expect("random server is not set");
+        let random_client = random_client.expect("random_client is not set");
+        let random_server = random_server.expect("random_server is not set");
         let priv_key_session_notary =
-            priv_key_session_notary.expect("notary private key is not set");
+            priv_key_session_notary.expect("priv_key_session_notary is not set");
+        let kx_params = kx_params.expect("kx_params is not set");
         let ciphertext_application_data_server = ciphertext_application_data_server
-            .expect("server application data ciphertext is not set");
+            .expect("ciphertext_application_data_server is not set");
 
         // TDN log
         {
@@ -222,6 +260,7 @@ impl TdnVerifier<state::Setup> {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
             commitment_handshake: handshake_commitment.as_bytes().to_vec(),
         };
@@ -249,12 +288,24 @@ impl TdnVerifier<state::Setup> {
                 handshake_commitment,
                 sent_len,
                 recv_len,
+                tdn_session_data,
             },
         })
     }
 }
 
-impl TdnVerifier<state::Closed> {}
+impl TdnVerifier<state::Closed> {
+    /// Starts notarization of the TLS session.
+    ///
+    /// If the verifier is a Notary, this function will transition the verifier to the next state
+    /// where it can sign the prover's commitments to the transcript.
+    pub fn start_notarize(self) -> TdnVerifier<Notarize> {
+        TdnVerifier {
+            config: self.config,
+            state: self.state.into(),
+        }
+    }
+}
 
 /// Performs a setup of the various MPC subprotocols.
 #[cfg_attr(feature = "tracing", instrument(level = "debug", skip_all, err))]

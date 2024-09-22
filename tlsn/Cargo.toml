@@ -45,6 +45,7 @@ mpz-ot = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9
 mpz-share-conversion = { git = "https://github.com/privacy-scaling-explorations/mpz", rev = "9f7403b" }
 
 futures = "0.3"
+futures-timer = "3"
 tokio-util = "0.7"
 hyper = "<=0.14.26"
 tokio = "1"
@@ -72,4 +73,5 @@ rstest = "0.17"
 web-time = "0.2"
 
 base64 = "0.22"
+blake3 = "1.5"
 serde_json = "1.0"

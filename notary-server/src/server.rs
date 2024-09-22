@@ -51,6 +51,8 @@ use crate::{
 pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotaryServerError> {
     // Load the private key for notarized transcript signing
     let notary_signing_key = load_notary_signing_key(&config.notary_key).await?;
+    // Load the Notary settlement address. It's not used in the process directly, but is included in the proof in the TDN process.
+    let notary_settlement_addr = config.settlement_addr.clone();
 
     // TDN log
     {
@@ -114,6 +116,7 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
     let protocol = Arc::new(Http::new());
     let notary_globals = NotaryGlobals::new(
         notary_signing_key,
+        notary_settlement_addr,
         config.notarization.clone(),
         authorization_whitelist,
     );

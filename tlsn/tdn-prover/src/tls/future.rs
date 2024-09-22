@@ -1,6 +1,6 @@
 //! This module collects futures which are used by the [Prover].
 
-use super::{state, Prover, ProverControl, ProverError};
+use super::{state, ProverControl, ProverError, TdnProver};
 use futures::{future::FusedFuture, Future};
 use std::pin::Pin;
 
@@ -8,7 +8,7 @@ use std::pin::Pin;
 pub struct ProverFuture {
     #[allow(clippy::type_complexity)]
     pub(crate) fut: Pin<
-        Box<dyn Future<Output = Result<Prover<state::TdnClosed>, ProverError>> + Send + 'static>,
+        Box<dyn Future<Output = Result<TdnProver<state::TdnClosed>, ProverError>> + Send + 'static>,
     >,
     pub(crate) ctrl: ProverControl,
 }
@@ -21,7 +21,7 @@ impl ProverFuture {
 }
 
 impl Future for ProverFuture {
-    type Output = Result<Prover<state::TdnClosed>, ProverError>;
+    type Output = Result<TdnProver<state::TdnClosed>, ProverError>;
 
     fn poll(
         mut self: Pin<&mut Self>,

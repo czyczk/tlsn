@@ -3,7 +3,7 @@ use ws_stream_tungstenite::WsStream;
 
 use crate::{
     domain::notary::NotaryGlobals,
-    service::{axum_websocket::WebSocket, notary_service, run_tdn_collect},
+    service::{axum_websocket::WebSocket, notary_service, run_tdn_process},
 };
 
 /// Perform notarization using the established websocket connection
@@ -42,17 +42,22 @@ pub async fn websocket_tdn_collect(
     session_id: String,
     max_sent_data: Option<usize>,
     max_recv_data: Option<usize>,
+    commitment_pwd_proof: Vec<u8>,
+    pub_key_consumer: Vec<u8>,
 ) {
     debug!(?session_id, "Upgraded to websocket connection");
     // Wrap the websocket in WsStream so that we have AsyncRead and AsyncWrite implemented
     let stream = WsStream::new(socket.into_inner());
-    match run_tdn_collect(
+    match run_tdn_process(
         stream,
         &notary_globals.notary_signing_key,
+        notary_globals.notary_settlement_addr,
         notary_globals.tdn_store,
         &session_id,
         max_sent_data,
         max_recv_data,
+        commitment_pwd_proof,
+        pub_key_consumer,
     )
     .await
     {

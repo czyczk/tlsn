@@ -78,6 +78,8 @@ pub struct MpcTlsFollowerData {
     pub random_server: Option<Vec<u8>>,
     /// Notary private key used in this session. Only present and necessary in TDN mode.
     pub priv_key_session_notary: Option<Vec<u8>>,
+    /// Key exchange params. Only present and necessary in TDN mode.
+    pub kx_params: Option<Vec<u8>>,
     /// Ciphertext of the application data fromt the server collected in this session. Only present and necessary in TDN mode.
     pub ciphertext_application_data_server: Option<Vec<u8>>,
 }
@@ -99,6 +101,7 @@ impl ludi::Actor for MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
         } = {
             if !self.state.is_closed() {
@@ -145,6 +148,7 @@ impl ludi::Actor for MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
         })
     }
@@ -362,6 +366,7 @@ impl MpcTlsFollower {
         handshake_commitment: Option<Hash>,
         random_client: Option<Vec<u8>>,
         random_server: Option<Vec<u8>>,
+        kx_params: Option<Vec<u8>>,
     ) -> Result<(), MpcTlsError> {
         if self.tdn_mode {
             if random_client.is_none() {
@@ -374,6 +379,12 @@ impl MpcTlsFollower {
                 return Err(MpcTlsError::new(
                     Kind::PeerMisbehaved,
                     "server random is missing in TDN mode",
+                ));
+            }
+            if kx_params.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::PeerMisbehaved,
+                    "kx_params is missing in TDN mode",
                 ));
             }
         }
@@ -415,6 +426,7 @@ impl MpcTlsFollower {
             } else {
                 None
             },
+            kx_params: if self.tdn_mode { kx_params } else { None },
         });
 
         Ok(())
@@ -431,6 +443,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
         } = self.state.take().try_into_ke()?;
 
         self.prf.compute_client_finished_vd_blind().await?;
@@ -441,6 +454,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
         });
 
         Ok(())
@@ -457,6 +471,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
         } = self.state.take().try_into_sf()?;
 
         self.prf.compute_server_finished_vd_blind().await?;
@@ -468,6 +483,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server: Default::default(),
         });
 
@@ -485,6 +501,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
         } = self.state.take().try_into_cf()?;
 
         self.encrypter
@@ -497,6 +514,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
         });
 
         Ok(())
@@ -671,6 +689,7 @@ impl MpcTlsFollower {
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
         } = self.state.take().try_into_active()?;
 
@@ -681,39 +700,13 @@ impl MpcTlsFollower {
             ));
         }
 
-        if self.tdn_mode {
-            if random_client.is_none() {
-                return Err(MpcTlsError::new(
-                    Kind::State,
-                    "client random is missing in TDN mode",
-                ));
-            }
-            if random_server.is_none() {
-                return Err(MpcTlsError::new(
-                    Kind::State,
-                    "server random is missing in TDN mode",
-                ));
-            }
-            if priv_key_session_notary.is_none() {
-                return Err(MpcTlsError::new(
-                    Kind::State,
-                    "notary private key is missing in TDN mode",
-                ));
-            }
-            if ciphertext_application_data_server.is_none() {
-                return Err(MpcTlsError::new(
-                    Kind::State,
-                    "ciphertext of the application data from the server is missing in TDN mode",
-                ));
-            }
-        }
-
         self.state = State::Closed(Closed {
             handshake_commitment,
             server_key,
             random_client,
             random_server,
             priv_key_session_notary,
+            kx_params,
             ciphertext_application_data_server,
         });
 
@@ -750,9 +743,15 @@ impl MpcTlsFollower {
         handshake_commitment: Option<Hash>,
         server_random: Option<Vec<u8>>,
         client_random: Option<Vec<u8>>,
+        kx_params: Option<Vec<u8>>,
     ) {
         ctx.try_or_stop(|_| {
-            self.compute_key_exchange(handshake_commitment, server_random, client_random)
+            self.compute_key_exchange(
+                handshake_commitment,
+                server_random,
+                client_random,
+                kx_params,
+            )
         })
         .await;
     }
@@ -851,6 +850,8 @@ mod state {
         pub(super) random_server: Option<Vec<u8>>,
         /// Notary private key used in this session. Only present and necessary in TDN mode.
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Key exchange params. Only present and necessary in TDN mode.
+        pub(super) kx_params: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -863,6 +864,8 @@ mod state {
         pub(super) random_server: Option<Vec<u8>>,
         /// Notary private key used in this session. Only present and necessary in TDN mode.
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Key exchange params. Only present and necessary in TDN mode.
+        pub(super) kx_params: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -875,6 +878,8 @@ mod state {
         pub(super) random_server: Option<Vec<u8>>,
         /// Notary private key used in this session. Only present and necessary in TDN mode.
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Key exchange params. Only present and necessary in TDN mode.
+        pub(super) kx_params: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -892,6 +897,8 @@ mod state {
         pub(super) random_server: Option<Vec<u8>>,
         /// Notary private key used in this session. Only present and necessary in TDN mode.
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Key exchange params. Only present and necessary in TDN mode.
+        pub(super) kx_params: Option<Vec<u8>>,
         /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
         pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }
@@ -906,6 +913,8 @@ mod state {
         pub(super) random_server: Option<Vec<u8>>,
         /// Notary private key used in this session. Only present and necessary in TDN mode.
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
+        /// Key exchange params. Only present and necessary in TDN mode.
+        pub(super) kx_params: Option<Vec<u8>>,
         /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
         pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }

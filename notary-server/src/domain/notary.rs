@@ -42,6 +42,10 @@ pub struct NotarizationRequestQuery {
 pub struct TdnCollectRequest {
     /// Session id that is returned from /session API
     pub session_id: String,
+    /// Commitment to the password that protects the proof that will be generated
+    pub commitment_pwd_proof_base64: String,
+    /// Consumer public key
+    pub pub_key_consumer_base64: String,
 }
 
 /// Types of client that the prover is using
@@ -65,6 +69,8 @@ pub struct SessionData {
 #[derive(Clone, Debug)]
 pub struct NotaryGlobals {
     pub notary_signing_key: SigningKey,
+    /// Notary settlement blockchain address. Required in the TDN process.
+    pub notary_settlement_addr: Option<String>,
     pub notarization_config: NotarizationProperties,
     /// A temporary storage to store configuration data, mainly used for WebSocket client
     pub store: Arc<AsyncMutex<HashMap<String, SessionData>>>,
@@ -77,11 +83,13 @@ pub struct NotaryGlobals {
 impl NotaryGlobals {
     pub fn new(
         notary_signing_key: SigningKey,
+        notary_settlement_addr: Option<String>,
         notarization_config: NotarizationProperties,
         authorization_whitelist: Option<Arc<Mutex<HashMap<String, AuthorizationWhitelistRecord>>>>,
     ) -> Self {
         Self {
             notary_signing_key,
+            notary_settlement_addr,
             notarization_config,
             store: Default::default(),
             tdn_store: Default::default(),

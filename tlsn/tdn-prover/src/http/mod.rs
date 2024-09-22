@@ -9,7 +9,7 @@ pub mod state;
 
 use tlsn_formats::{http::HttpTranscript, ParseError};
 
-use crate::tls::{state as prover_state, Prover, ProverError};
+use crate::tls::{state as prover_state, TdnProver, ProverError};
 
 pub use tlsn_formats::http::NotarizedHttpSession;
 
@@ -31,7 +31,7 @@ pub struct HttpProver<S: state::State> {
 
 impl HttpProver<state::TdnClosed> {
     /// Creates a new HTTP prover.
-    pub fn new(prover: Prover<prover_state::TdnClosed>) -> Result<Self, HttpProverError> {
+    pub fn new(prover: TdnProver<prover_state::TdnClosed>) -> Result<Self, HttpProverError> {
         let transcript = HttpTranscript::parse(prover.sent_transcript(), prover.recv_transcript())?;
 
         Ok(Self {

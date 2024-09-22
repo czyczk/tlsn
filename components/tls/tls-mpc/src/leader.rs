@@ -732,6 +732,11 @@ impl Backend for MpcTlsLeader {
                 } else {
                     None
                 },
+                kx_params: if self.tdn_mode {
+                    Some(server_kx_details.kx_params().to_vec())
+                } else {
+                    None
+                },
             }))
             .await
             .map_err(|e| BackendError::InternalError(e.to_string()))?;

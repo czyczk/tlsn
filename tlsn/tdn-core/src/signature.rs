@@ -1,3 +1,5 @@
+//! Signature types and utilities.
+
 use serde::{Deserialize, Serialize};
 
 use p256::ecdsa::{signature::Verifier, VerifyingKey};

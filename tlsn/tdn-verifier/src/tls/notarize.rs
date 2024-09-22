@@ -2,54 +2,95 @@
 //!
 //! The TLS verifier is only a notary.
 
-use super::{state::Closed, TdnVerifier, TdnVerifierError};
-use base64::{prelude::BASE64_STANDARD, Engine};
-use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
-use mpz_core::serialize::CanonicalSerialize;
+use crate::tls::state::Notarize;
+
+use super::{TdnVerifier, TdnVerifierError};
+use futures::{FutureExt as _, SinkExt, StreamExt, TryFutureExt};
+use mpz_core::{hash::Hash, serialize::CanonicalSerialize};
+use p256::SecretKey;
 use signature::Signer;
-use tlsn_core::{
-    msg::{SignedSessionHeader, TlsnMessage},
-    HandshakeSummary, SessionHeader, Signature,
+use tdn_core::signature::Signature;
+use tdn_core::{
+    msg::{NotarizationResult, TdnMessage},
+    proof::{Commitments, Kx, ProofNotary, TlsData},
+    ToTdnStandardSerialized,
 };
+use tls_core::key::PublicKey;
+use tlsn_core::HandshakeSummary;
 use utils_aio::{expect_msg_or_err, mux::MuxChannel};
 
 #[cfg(feature = "tracing")]
 use tracing::info;
 
-impl TdnVerifier<Closed> {
+impl TdnVerifier<Notarize> {
     /// Notarizes the TLS session.
-    pub async fn finalize<T>(
+    pub async fn notarize<T>(
         self,
         signer: &impl Signer<T>,
-    ) -> Result<SessionHeader, TdnVerifierError>
+        settlement_addr: String,
+        commitment_pwd_proof: Vec<u8>,
+        pub_key_consumer: Vec<u8>,
+    ) -> Result<ProofNotary, TdnVerifierError>
     where
         T: Into<Signature>,
     {
         // TDN log
-        tracing::info!("TdnVerifier::finalize()");
+        println!("TdnVerifier::notarize()");
 
-        let Closed {
+        let Notarize {
             mut mux_ctrl,
             mut mux_fut,
             ot_send,
             ot_recv,
             ot_fut,
-            encoder_seed,
             start_time,
             server_ephemeral_key,
             handshake_commitment,
-            sent_len,
-            recv_len,
+            tdn_session_data,
             ..
         } = self.state;
+
+        // Prepare
+        // Hash ciphertext_application_data_server
+        let commitment_ciphertext_application_data_server: [u8; 32] =
+            blake3::hash(&tdn_session_data.ciphertext_application_data_server).into();
+
+        // Encrypt `priv_key_session_notary` from `tdn_session_data` against `pub_key_consumer`.
+        // Perform direct asymmetric encryption because of several reasons:
+        // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
+        //    generated ephemeral key pair is not needed.
+        // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
+        let commitment_cipher1_priv_key_session_notary = {
+            // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
+            let encrypted_data = pub_key_consumer
+                .iter()
+                .zip(tdn_session_data.priv_key_session_notary.iter())
+                .map(|(b, d)| b ^ d)
+                .collect::<Vec<u8>>();
+            // Blake3 hash it.
+            let hash: [u8; 32] = blake3::hash(&encrypted_data).into();
+            Hash::from(hash)
+        };
 
         let notarize_fut = async {
             let mut notarize_channel = mux_ctrl.get_channel("notarize").await?;
 
-            let merkle_root =
-                expect_msg_or_err!(notarize_channel, TlsnMessage::TranscriptCommitmentRoot)?;
+            // TDN log
+            println!("TDN log: N<-recv-P: TdnMessage::PubKeySessionProver");
 
+            let pub_key_session_prover =
+                expect_msg_or_err!(notarize_channel, TdnMessage::PubKeySessionProver)?;
+
+            // TDN log
+            println!("TDN log: N<-recv-P: TdnMessage::Certificates");
+
+            // TDN TODO: verify the certificates. See if this should be passed from TLS MPC instead of from the prover here.
+            // If passed down from TLS MPC, a verification should be done there.
+            let certificates = expect_msg_or_err!(notarize_channel, TdnMessage::Certificates)?;
+
+            // TDN TODO: Whether this step can be skipped?
             // Finalize all MPC before signing the session header
+            println!("TDN log: Finalize all MPC");
             let (mut ot_sender_actor, _, _) = futures::try_join!(
                 ot_fut,
                 ot_send.shutdown().map_err(TdnVerifierError::from),
@@ -58,55 +99,69 @@ impl TdnVerifier<Closed> {
 
             ot_sender_actor.reveal().await?;
 
-            // TDN log
-            {
-                let encoder_seed_base64 = BASE64_STANDARD.encode(encoder_seed);
-                let merkle_root_base64 = BASE64_STANDARD.encode(merkle_root.to_bytes());
-                let server_ephemeral_key_json = serde_json::json!({
-                        "group": server_ephemeral_key.group,
-                        "key": BASE64_STANDARD.encode(server_ephemeral_key.key.to_bytes()),
-                });
-                let handshake_commitment_base64 =
-                    BASE64_STANDARD.encode(handshake_commitment.to_bytes());
-                info!(
-                    encoder_seed_existing = %encoder_seed_base64,
-                    merkle_root = %merkle_root_base64,
-                    start_time_existing = %start_time,
-                    server_ephemeral_key_existing = ?server_ephemeral_key_json,
-                    handshake_commitment_existing = ?handshake_commitment_base64,
-                    "TDN log: MPC finalize; got merkle root; handshake summary = start time + server ephemeral key + handshake commitment; session header = encoder seed + merkle root + handshake summary.",
-                );
-            }
-
             #[cfg(feature = "tracing")]
             info!("Finalized all MPC");
 
-            let handshake_summary =
-                HandshakeSummary::new(start_time, server_ephemeral_key, handshake_commitment);
+            println!("Finalized all MPC");
 
-            let session_header = SessionHeader::new(
-                encoder_seed,
-                merkle_root,
-                sent_len,
-                recv_len,
-                handshake_summary,
-            );
+            // let handshake_summary =
+            //     HandshakeSummary::new(start_time, server_ephemeral_key, handshake_commitment);
 
-            let signature = signer.sign(&session_header.to_bytes());
+            // TDN log
+            println!("TDN log: Assemble ProofNotary");
+
+            let proof_notary = ProofNotary {
+                tls_data: TlsData {
+                    session_id: tdn_session_data.session_id,
+                    kx: Kx {
+                        pub_key_session_notary: PublicKey::from(
+                            SecretKey::from_sec1_der(&tdn_session_data.priv_key_session_notary)
+                                .map_err(|e| TdnVerifierError::PrivateKeyError(e.to_string()))?
+                                .public_key(),
+                        )
+                        .to_bytes(),
+                        pub_key_session_prover: pub_key_session_prover.to_bytes(),
+                        pub_key_session_server: server_ephemeral_key.to_bytes(),
+                        kx_params: tdn_session_data.kx_params,
+                    },
+                    certificates,
+                },
+                commitments: Commitments {
+                    commitment_ciphertext_application_data: Hash::from(
+                        commitment_ciphertext_application_data_server,
+                    ),
+                    commitment_handshake: {
+                        let arr: [u8; 32] = tdn_session_data
+                            .commitment_handshake
+                            .try_into()
+                            .expect("expecting 32 bytes");
+                        Hash::from(arr)
+                    },
+                    commitment_pwd_proof: {
+                        let arr: [u8; 32] =
+                            commitment_pwd_proof.try_into().expect("expecting 32 bytes");
+                        Hash::from(arr)
+                    },
+                    commitment_cipher1_priv_key_session_notary,
+                },
+                settlement_addr_notary: settlement_addr,
+            };
+            let signature = signer.sign(&serde_json::to_vec(
+                &proof_notary.to_tdn_standard_serialized(),
+            )?);
 
             // TDN log
             let signature: Signature = signature.into();
-            info!(
-                session_header_signature = ?signature,
-                "TDN log: MPC finalize; generated session hander signature; sent through io later.",
-            );
-
             #[cfg(feature = "tracing")]
-            info!("Signed session header");
+            info!(
+                notary_proof_signature = ?signature,
+                "TDN log: MPC finalize; generated notary proof signature; sent through channel 'notarize' later.",
+            );
+            println!("TDN log: MPC finalize; generated notary proof signature; sent through channel 'notarize' later; notary_proof_signature: {:?}", signature);
 
             notarize_channel
-                .send(TlsnMessage::SignedSessionHeader(SignedSessionHeader {
-                    header: session_header.clone(),
+                .send(TdnMessage::NotarizationResult(NotarizationResult {
+                    proof_notary: proof_notary.clone(),
                     signature: signature.into(),
                 }))
                 .await?;
@@ -114,10 +169,10 @@ impl TdnVerifier<Closed> {
             #[cfg(feature = "tracing")]
             info!("Sent session header");
 
-            Ok::<_, TdnVerifierError>(session_header)
+            Ok::<_, TdnVerifierError>(proof_notary)
         };
 
-        let session_header = futures::select! {
+        let proof_notary = futures::select! {
             res = notarize_fut.fuse() => res?,
             _ = &mut mux_fut => Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?,
         };
@@ -126,6 +181,6 @@ impl TdnVerifier<Closed> {
 
         futures::try_join!(mux_ctrl.close().map_err(TdnVerifierError::from), mux_fut)?;
 
-        Ok(session_header)
+        Ok(proof_notary)
     }
 }
