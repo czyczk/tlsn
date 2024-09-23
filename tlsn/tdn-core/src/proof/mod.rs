@@ -18,7 +18,7 @@ pub enum TdnProofError {
 }
 
 /// A validated notarization from Notary.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignedProofNotary {
     /// Notary proof.
     pub proof_notary: ProofNotary,

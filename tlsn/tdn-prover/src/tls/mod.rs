@@ -233,10 +233,10 @@ impl TdnProver<state::TdnClosed> {
         HttpProver::new(self)
     }
 
-    /// Consumes this prover and generates a [`TdnCollectLeaderResult`].
-    pub fn take_collection_result(self) -> TdnCollectLeaderResult {
-        #[cfg(feature = "tracing")]
+    /// Generates and returns a [`TdnCollectLeaderResult`] from the information collected during the session.
+    pub fn take_collection_result(&self) -> TdnCollectLeaderResult {
         // TDN log
+        #[cfg(feature = "tracing")]
         tracing::info!("Prover::take_collection_result()");
 
         TdnCollectLeaderResult {
@@ -246,7 +246,10 @@ impl TdnProver<state::TdnClosed> {
             ),
             random_client: self.state.random_client.to_vec(),
             random_server: self.state.random_server.to_vec(),
-            ciphertext_application_data_server: self.state.ciphertext_application_data_server,
+            ciphertext_application_data_server: self
+                .state
+                .ciphertext_application_data_server
+                .clone(),
         }
     }
 
