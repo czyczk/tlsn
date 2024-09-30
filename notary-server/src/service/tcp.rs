@@ -113,20 +113,17 @@ pub async fn tcp_tdn_collect(
     session_id: String,
     max_sent_data: Option<usize>,
     max_recv_data: Option<usize>,
-    commitment_pwd_proof: Vec<u8>,
-    pub_key_consumer: Vec<u8>,
 ) {
     debug!(?session_id, "Upgraded to tcp connection");
     match run_tdn_process(
         stream,
         &notary_globals.notary_signing_key,
-        notary_globals.notary_settlement_addr,
+        notary_globals.notary_blockchain_evm_priv_key,
+        notary_globals.notary_blockchain_evm_settlement_addr,
         notary_globals.tdn_store,
         &session_id,
         max_sent_data,
         max_recv_data,
-        commitment_pwd_proof,
-        pub_key_consumer,
     )
     .await
     {

@@ -42,7 +42,7 @@ use mpz_ot::{
 use mpz_share_conversion as ff;
 use rand::Rng;
 use signature::Signer;
-use tdn_core::signature::Signature;
+use tdn_core::sig::Signature;
 use tls_mpc::{setup_components, MpcTlsFollower, MpcTlsFollowerData, TlsRole};
 use tlsn_common::{
     mux::{attach_mux, MuxControl},
@@ -134,10 +134,9 @@ impl TdnVerifier<state::Initialized> {
         self,
         socket: S,
         signer: &impl Signer<T>,
-        settlement_addr: String,
+        evm_priv_key: secp256k1::SecretKey,
+        evm_settlement_addr: String,
         tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
-        commitment_pwd_proof: Vec<u8>,
-        pub_key_consumer: Vec<u8>,
     ) -> Result<ProofNotary, TdnVerifierError>
     where
         T: Into<Signature>,
@@ -147,12 +146,7 @@ impl TdnVerifier<state::Initialized> {
             .run_collection(tdn_store)
             .await?
             .start_notarize()
-            .notarize(
-                signer,
-                settlement_addr,
-                commitment_pwd_proof,
-                pub_key_consumer,
-            )
+            .notarize(signer, evm_priv_key, evm_settlement_addr)
             .await
     }
 }

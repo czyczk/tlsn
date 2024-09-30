@@ -8,7 +8,7 @@ use super::{TdnVerifier, TdnVerifierError};
 use futures::{FutureExt as _, SinkExt, StreamExt, TryFutureExt};
 use mpz_core::{hash::Hash, serialize::CanonicalSerialize};
 use signature::Signer;
-use tdn_core::signature::Signature;
+use tdn_core::sig::Signature;
 use tdn_core::{
     msg::{NotarizationResult, TdnMessage},
     proof::{Commitments, Kx, ProofNotary, TlsData},
@@ -25,9 +25,8 @@ impl TdnVerifier<Notarize> {
     pub async fn notarize<T>(
         self,
         signer: &impl Signer<T>,
-        settlement_addr: String,
-        commitment_pwd_proof: Vec<u8>,
-        pub_key_consumer: Vec<u8>,
+        evm_priv_key: secp256k1::SecretKey,
+        evm_settlement_addr: String,
     ) -> Result<ProofNotary, TdnVerifierError>
     where
         T: Into<Signature>,
@@ -48,43 +47,52 @@ impl TdnVerifier<Notarize> {
             ..
         } = self.state;
 
-        // Prepare
-        // Hash ciphertext_application_data_server
-        let commitment_ciphertext_application_data_server: [u8; 32] =
-            blake3::hash(&tdn_session_data.ciphertext_application_data_server).into();
-
-        // Encrypt `priv_key_session_notary` from `tdn_session_data` against `pub_key_consumer`.
-        // Perform direct asymmetric encryption because of several reasons:
-        // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
-        //    generated ephemeral key pair is not needed.
-        // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
-        let commitment_cipher1_priv_key_session_notary = {
-            // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
-            let encrypted_data = pub_key_consumer
-                .iter()
-                .zip(tdn_session_data.priv_key_session_notary.iter())
-                .map(|(b, d)| b ^ d)
-                .collect::<Vec<u8>>();
-            // Blake3 hash it.
-            let hash: [u8; 32] = blake3::hash(&encrypted_data).into();
-            Hash::from(hash)
-        };
-
         let notarize_fut = async {
             let mut notarize_channel = mux_ctrl.get_channel("notarize").await?;
 
             // TDN log
-            println!("TDN log: N<-recv-P: TdnMessage::PubKeySessionProver");
+            println!("TDN log: N<-recv-P: TdnMessage::PubKeyConsumer");
+            let pub_key_consumer =
+                expect_msg_or_err!(notarize_channel, TdnMessage::PubKeyConsumer)?;
 
+            // TDN log
+            println!("TDN log: N<-recv-P: TdnMessage::CommitmentPwdProof");
+            let commitment_pwd_proof =
+                expect_msg_or_err!(notarize_channel, TdnMessage::CommitmentPwdProof)?;
+
+            // TDN log
+            println!("TDN log: N<-recv-P: TdnMessage::PubKeySessionProver");
             let pub_key_session_prover =
                 expect_msg_or_err!(notarize_channel, TdnMessage::PubKeySessionProver)?;
 
             // TDN log
             println!("TDN log: N<-recv-P: TdnMessage::Certificates");
-
             // TDN TODO: verify the certificates. See if this should be passed from TLS MPC instead of from the prover here.
             // If passed down from TLS MPC, a verification should be done there.
             let certificates = expect_msg_or_err!(notarize_channel, TdnMessage::Certificates)?;
+
+            // Prepare
+            // Hash ciphertext_application_data_server
+            let commitment_ciphertext_application_data_server: [u8; 32] =
+                blake3::hash(&tdn_session_data.ciphertext_application_data_server).into();
+
+            // Encrypt `priv_key_session_notary` from `tdn_session_data` against `pub_key_consumer`.
+            // Perform direct asymmetric encryption because of several reasons:
+            // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
+            //    generated ephemeral key pair is not needed.
+            // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
+            let commitment_cipher1_priv_key_session_notary = {
+                // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
+                let encrypted_data = pub_key_consumer
+                    .to_bytes()
+                    .iter()
+                    .zip(tdn_session_data.priv_key_session_notary.iter())
+                    .map(|(b, d)| b ^ d)
+                    .collect::<Vec<u8>>();
+                // Blake3 hash it.
+                let hash: [u8; 32] = blake3::hash(&encrypted_data).into();
+                Hash::from(hash)
+            };
 
             // TDN TODO: Whether this step can be skipped?
             // Finalize all MPC before signing the session header
@@ -142,7 +150,7 @@ impl TdnVerifier<Notarize> {
                     },
                     commitment_cipher1_priv_key_session_notary,
                 },
-                settlement_addr_notary: settlement_addr,
+                settlement_addr_notary: evm_settlement_addr,
             };
             let signature = signer.sign(&serde_json::to_vec(
                 &proof_notary.to_tdn_standard_serialized(),

@@ -51,8 +51,14 @@ use crate::{
 pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotaryServerError> {
     // Load the private key for notarized transcript signing
     let notary_signing_key = load_notary_signing_key(&config.notary_key).await?;
-    // Load the Notary settlement address. It's not used in the process directly, but is included in the proof in the TDN process.
-    let notary_settlement_addr = config.settlement_addr.clone();
+    // Load the Notary blockchain params.
+    // The Notary EVM private key is required in the TDN process.
+    // The Notary settlement address is not used in the process directly, but is included in the proof in the TDN process.
+    let notary_blockchain_params = config
+        .blockchain_evm_priv_key
+        .clone()
+        .map(|it| load_notary_blockchain_evm_priv_key(&it))
+        .transpose()?;
 
     // TDN log
     {
@@ -116,7 +122,12 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
     let protocol = Arc::new(Http::new());
     let notary_globals = NotaryGlobals::new(
         notary_signing_key,
-        notary_settlement_addr,
+        notary_blockchain_params
+            .as_ref()
+            .map(|(priv_key, _)| (priv_key.clone())),
+        notary_blockchain_params
+            .as_ref()
+            .map(|(_, settlement_addr)| (settlement_addr.clone())),
         config.notarization.clone(),
         authorization_whitelist,
     );
@@ -239,6 +250,33 @@ async fn load_notary_signing_key(config: &NotarySigningKeyProperties) -> Result<
 
     debug!("Successfully loaded notary server's signing key!");
     Ok(notary_signing_key)
+}
+
+fn load_notary_blockchain_evm_priv_key(
+    priv_key: &String,
+) -> Result<(secp256k1::SecretKey, String)> {
+    debug!("Loading notary blockchain EVM private key");
+    // Should be 66 characters long.
+    ensure!(
+        priv_key.len() == 66 && priv_key.starts_with("0x"),
+        "Notary blockchain EVM private key should be 66 characters long"
+    );
+    // Hex to bytes, ignoring the first 2 characters "0x".
+    let priv_key = hex::decode(&priv_key[2..])
+        .map_err(|err| eyre!("Failed to decode notary blockchain EVM private key. Expecting hex starting with \"0x\": {err}"))?;
+    let priv_key = secp256k1::SecretKey::from_slice(&priv_key)
+        .map_err(|err| eyre!("Failed to load notary blockchain EVM private key: {err}"))?;
+
+    // Derive the address from the private key.
+    let secp = secp256k1::Secp256k1::new();
+    let settlement_addr = secp256k1::PublicKey::from_secret_key(&secp, &priv_key)
+        .serialize_uncompressed()
+        .to_vec();
+
+    // Convert address to "0x" hex string.
+    let settlement_addr = format!("0x{}", hex::encode(settlement_addr));
+
+    Ok((priv_key, settlement_addr))
 }
 
 /// Read a PEM-formatted file and return its buffer reader

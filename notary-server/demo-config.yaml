@@ -30,4 +30,4 @@ authorization:
   enabled: false
   whitelist-csv-path: "./fixture/auth/whitelist.csv"
 
-settlement-addr: "0xe2d137463b9a22dabad31f1ba43acc0532724bab"
+blockchain-evm-priv-key: "0xeebd0f24a4cbd88ee56c6c7732d067d8a64c06102dbf623c9f504594dfef78b9"

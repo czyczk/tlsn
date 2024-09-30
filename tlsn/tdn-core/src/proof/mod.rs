@@ -1,8 +1,7 @@
 //! TDN proof types.
 
 use crate::{
-    session::TdnSessionId, signature::Signature, TdnStandardSerializedEntry,
-    ToTdnStandardSerialized,
+    session::TdnSessionId, sig::Signature, TdnStandardSerializedEntry, ToTdnStandardSerialized,
 };
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use mpz_core::hash::Hash;

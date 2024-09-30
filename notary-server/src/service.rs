@@ -11,7 +11,6 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use axum_macros::debug_handler;
-use base64::{prelude::BASE64_URL_SAFE, Engine as _};
 use chrono::Utc;
 use p256::ecdsa::{Signature, SigningKey};
 use tdn_core::session::TdnSessionData;
@@ -139,31 +138,6 @@ pub async fn upgrade_protocol_for_tdn_collect(
         }
     };
 
-    // Decode bas64-encoded params.
-    let commitment_pwd_proof = match BASE64_URL_SAFE.decode(params.commitment_pwd_proof_base64) {
-        Ok(decoded) => decoded,
-        Err(e) => {
-            let err_msg = format!(
-                "Failed to decode commitment_pwd_proof_base64: {}",
-                e.to_string()
-            );
-            error!(err_msg);
-            return NotaryServerError::BadProverRequest(err_msg).into_response();
-        }
-    };
-
-    let pub_key_consumer = match BASE64_URL_SAFE.decode(params.pub_key_consumer_base64) {
-        Ok(decoded) => decoded,
-        Err(e) => {
-            let err_msg = format!(
-                "Failed to decode pub_key_consumer_base64: {}",
-                e.to_string()
-            );
-            error!(err_msg);
-            return NotaryServerError::BadProverRequest(err_msg).into_response();
-        }
-    };
-
     // This completes the HTTP Upgrade request and returns a successful response to the client, meanwhile initiating the websocket or tcp connection
     match protocol_upgrade {
         ProtocolUpgrade::Ws(ws) => ws.on_upgrade(move |socket| {
@@ -173,8 +147,6 @@ pub async fn upgrade_protocol_for_tdn_collect(
                 session_id,
                 max_sent_data,
                 max_recv_data,
-                commitment_pwd_proof,
-                pub_key_consumer,
             )
         }),
         ProtocolUpgrade::Tcp(tcp) => tcp.on_upgrade(move |stream| {
@@ -184,8 +156,6 @@ pub async fn upgrade_protocol_for_tdn_collect(
                 session_id,
                 max_sent_data,
                 max_recv_data,
-                commitment_pwd_proof,
-                pub_key_consumer,
             )
         }),
     }
@@ -291,20 +261,24 @@ pub async fn notary_service<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 /// Run the whole TDN process, including TLS connection, collecting necessary data and notarization.
 pub async fn run_tdn_process<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     socket: T,
-    signing_key: &SigningKey,
-    settlement_addr: Option<String>,
+    p256_signing_key: &SigningKey,
+    evm_priv_key: Option<secp256k1::SecretKey>,
+    evm_settlement_addr: Option<String>,
     tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     session_id: &str,
     max_sent_data: Option<usize>,
     max_recv_data: Option<usize>,
-    commitment_pwd_proof: Vec<u8>,
-    pub_key_consumer: Vec<u8>,
 ) -> Result<(), NotaryServerError> {
     debug!(?session_id, "Starting TDN collect...");
 
-    let settlement_addr = settlement_addr.ok_or_else(|| {
+    let evm_priv_key = evm_priv_key.ok_or_else(|| {
         NotaryServerError::BadConfigForTdn(
-            "settlement-addr is required for TDN process".to_string(),
+            "blockchain-evm-priv-key is required for TDN process".to_string(),
+        )
+    })?;
+    let evm_settlement_addr = evm_settlement_addr.ok_or_else(|| {
+        NotaryServerError::BadConfigForTdn(
+            "blockchain-evm-settlement-addr is required for TDN process".to_string(),
         )
     })?;
 
@@ -325,11 +299,10 @@ pub async fn run_tdn_process<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>
     TdnVerifier::new(config)
         .collect::<_, Signature>(
             socket.compat(),
-            signing_key,
-            settlement_addr,
+            p256_signing_key,
+            evm_priv_key,
+            evm_settlement_addr,
             tdn_store,
-            commitment_pwd_proof,
-            pub_key_consumer,
         )
         .await?;
 

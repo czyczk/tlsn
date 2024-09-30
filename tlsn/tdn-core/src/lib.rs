@@ -13,7 +13,10 @@ use serde::Serialize;
 pub mod msg;
 pub mod proof;
 pub mod session;
-pub mod signature;
+pub mod sig;
+
+// Re-export the `signature` crate (and select types)
+pub use signature::Result as SignatureResult;
 
 /// Represents an entry in the serialization result using [`ToTdnStandardSerialized`].
 #[derive(Serialize)]

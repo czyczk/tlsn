@@ -10,6 +10,7 @@ use tdn_core::{
     msg::{NotarizationResult, TdnMessage},
     proof::SignedProofNotary,
 };
+use tls_core::{key::PublicKey, msgs::enums::NamedGroup};
 use tlsn_core::{commitment::TranscriptCommitmentBuilder, transcript::Transcript};
 #[cfg(feature = "tracing")]
 use tracing::{info, instrument};
@@ -35,8 +36,8 @@ impl TdnProver<Notarize> {
     #[cfg_attr(feature = "tracing", instrument(level = "info", skip(self), err))]
     pub async fn notarize(
         self,
-        commitment_pwd_proof: Vec<u8>,
         pub_key_consumer: Vec<u8>,
+        commitment_pwd_proof: Vec<u8>,
     ) -> Result<SignedProofNotary, ProverError> {
         let Notarize {
             mut mux_ctrl,
@@ -55,6 +56,23 @@ impl TdnProver<Notarize> {
 
         let mut notarize_fut = Box::pin(async move {
             let mut channel = mux_ctrl.get_channel("notarize").await?;
+
+            // TDN log
+            #[cfg(feature = "tracing")]
+            info!("TDN log: P-send->N: TdnMessage::PubKeyConsumer");
+
+            let pub_key_consumer = PublicKey::new(NamedGroup::secp256r1, &pub_key_consumer);
+            channel
+                .send(TdnMessage::PubKeyConsumer(pub_key_consumer))
+                .await?;
+
+            // TDN log
+            #[cfg(feature = "tracing")]
+            info!("TDN log: P-send->N: TdnMessage::CommitmentPwdProof");
+
+            channel
+                .send(TdnMessage::CommitmentPwdProof(commitment_pwd_proof))
+                .await?;
 
             // TDN log
             #[cfg(feature = "tracing")]

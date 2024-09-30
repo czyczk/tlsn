@@ -69,8 +69,10 @@ pub struct SessionData {
 #[derive(Clone, Debug)]
 pub struct NotaryGlobals {
     pub notary_signing_key: SigningKey,
-    /// Notary settlement blockchain address. Required in the TDN process.
-    pub notary_settlement_addr: Option<String>,
+    /// Notary blockchain EVM private key. Required in the TDN process.
+    pub notary_blockchain_evm_priv_key: Option<secp256k1::SecretKey>,
+    /// Notary blockchain EVM settlement address. Required in the TDN process.
+    pub notary_blockchain_evm_settlement_addr: Option<String>,
     pub notarization_config: NotarizationProperties,
     /// A temporary storage to store configuration data, mainly used for WebSocket client
     pub store: Arc<AsyncMutex<HashMap<String, SessionData>>>,
@@ -83,13 +85,15 @@ pub struct NotaryGlobals {
 impl NotaryGlobals {
     pub fn new(
         notary_signing_key: SigningKey,
-        notary_settlement_addr: Option<String>,
+        notary_blockchain_evm_priv_key: Option<secp256k1::SecretKey>,
+        notary_blockchain_evm_settlement_addr: Option<String>,
         notarization_config: NotarizationProperties,
         authorization_whitelist: Option<Arc<Mutex<HashMap<String, AuthorizationWhitelistRecord>>>>,
     ) -> Self {
         Self {
             notary_signing_key,
-            notary_settlement_addr,
+            notary_blockchain_evm_priv_key,
+            notary_blockchain_evm_settlement_addr,
             notarization_config,
             store: Default::default(),
             tdn_store: Default::default(),

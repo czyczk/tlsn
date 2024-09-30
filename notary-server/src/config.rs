@@ -15,8 +15,8 @@ pub struct NotaryServerProperties {
     pub logging: LoggingProperties,
     /// Setting for authorization
     pub authorization: AuthorizationProperties,
-    /// Notary settlement blockchain address. Required in the TDN process. It's not directly used in the process but is included in the proof.
-    pub settlement_addr: Option<String>,
+    /// Notary blockchain EVM private key. Required in the TDN process.
+    pub blockchain_evm_priv_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
