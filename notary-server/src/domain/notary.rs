@@ -42,10 +42,6 @@ pub struct NotarizationRequestQuery {
 pub struct TdnCollectRequest {
     /// Session id that is returned from /session API
     pub session_id: String,
-    /// Commitment to the password that protects the proof that will be generated
-    pub commitment_pwd_proof_base64: String,
-    /// Consumer public key
-    pub pub_key_consumer_base64: String,
 }
 
 /// Types of client that the prover is using

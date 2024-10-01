@@ -51,14 +51,14 @@ impl TdnVerifier<Notarize> {
             let mut notarize_channel = mux_ctrl.get_channel("notarize").await?;
 
             // TDN log
-            println!("TDN log: N<-recv-P: TdnMessage::PubKeyConsumer");
-            let pub_key_consumer =
-                expect_msg_or_err!(notarize_channel, TdnMessage::PubKeyConsumer)?;
-
-            // TDN log
             println!("TDN log: N<-recv-P: TdnMessage::CommitmentPwdProof");
             let commitment_pwd_proof =
                 expect_msg_or_err!(notarize_channel, TdnMessage::CommitmentPwdProof)?;
+
+            // TDN log
+            println!("TDN log: N<-recv-P: TdnMessage::PubKeyConsumer");
+            let pub_key_consumer =
+                expect_msg_or_err!(notarize_channel, TdnMessage::PubKeyConsumer)?;
 
             // TDN log
             println!("TDN log: N<-recv-P: TdnMessage::PubKeySessionProver");
