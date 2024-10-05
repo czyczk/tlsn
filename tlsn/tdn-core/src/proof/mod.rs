@@ -25,6 +25,19 @@ pub struct SignedProofNotary {
     pub signature: Signature,
 }
 
+impl ToTdnStandardSerialized for SignedProofNotary {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "proofNotary",
+            self.proof_notary.to_tdn_standard_serialized(),
+        );
+        map.insert("signature", self.signature.to_tdn_standard_serialized());
+
+        TdnStandardSerializedEntry::Object(map)
+    }
+}
+
 /// Proof produced by Notary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProofNotary {

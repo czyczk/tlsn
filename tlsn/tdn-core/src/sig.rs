@@ -1,6 +1,7 @@
 //! Signature types and utilities.
 
-use crate::SignatureResult;
+use crate::{SignatureResult, TdnStandardSerializedEntry, ToTdnStandardSerialized};
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 
 use p256::ecdsa::{signature::Verifier, VerifyingKey};
@@ -136,6 +137,19 @@ impl Signature {
             _ => Err(SignatureVerifyError(
                 "invalid combination of signature and public key or unsupported curve".to_string(),
             )),
+        }
+    }
+}
+
+impl ToTdnStandardSerialized for Signature {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        match self {
+            Self::P256(sig) => {
+                TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(sig.to_bytes()))
+            }
+            Self::Secp256k1(sig) => TdnStandardSerializedEntry::String(
+                BASE64_STANDARD.encode(sig.serialize_der().to_vec()),
+            ),
         }
     }
 }

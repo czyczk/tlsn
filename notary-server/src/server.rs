@@ -17,6 +17,7 @@ use notify::{
 };
 use p256::{ecdsa::SigningKey, pkcs8::DecodePrivateKey};
 use rustls::{Certificate, PrivateKey, ServerConfig};
+use sha3::{Digest, Keccak256};
 use std::{
     collections::HashMap,
     fs::File as StdFile,
@@ -64,9 +65,18 @@ pub async fn run_server(config: &NotaryServerProperties) -> Result<(), NotarySer
     {
         let signing_key_bytes = notary_signing_key.clone().to_bytes();
         let signing_key_base64 = BASE64_STANDARD.encode(&signing_key_bytes);
+        let notary_blockchain_evm_priv_key_base64 = notary_blockchain_params
+            .as_ref()
+            .map(|(priv_key, _)| priv_key.secret_bytes())
+            .map(|it| BASE64_STANDARD.encode(&it));
+        let notary_blockchain_evm_settlement_addr = notary_blockchain_params
+            .as_ref()
+            .map(|(_, settlement_addr)| settlement_addr.clone());
         info!(
             notary_signing_key = %signing_key_base64,
-            "TDN log: loaded notary signing key / priv key.",
+            notary_blockchain_evm_priv_key = ?notary_blockchain_evm_priv_key_base64,
+            notary_blockchain_evm_settlement_addr = ?notary_blockchain_evm_settlement_addr,
+            "TDN log: loaded notary signing key / priv key and blockchain params.",
         );
     }
 
@@ -269,9 +279,14 @@ fn load_notary_blockchain_evm_priv_key(
 
     // Derive the address from the private key.
     let secp = secp256k1::Secp256k1::new();
-    let settlement_addr = secp256k1::PublicKey::from_secret_key(&secp, &priv_key)
-        .serialize_uncompressed()
-        .to_vec();
+    // Keccak hash the uncompressed public key (excluding the first byte).
+    let uncompressed_pub_key =
+        secp256k1::PublicKey::from_secret_key(&secp, &priv_key).serialize_uncompressed();
+    let mut hasher = Keccak256::new();
+    hasher.update(&uncompressed_pub_key[1..]);
+    let hash = hasher.finalize();
+    // Use the last 20 bytes of the hash as the address.
+    let settlement_addr = &hash[12..];
 
     // Convert address to "0x" hex string.
     let settlement_addr = format!("0x{}", hex::encode(settlement_addr));

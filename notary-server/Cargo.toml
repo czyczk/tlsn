@@ -47,6 +47,7 @@ ws_stream_tungstenite = { version = "0.10.0", features = ["tokio_io"] }
 hex = "0.4"
 tdn-core = { path = "../tlsn/tdn-core" }
 secp256k1 = "0.29"
+sha3 = "0.10"
 
 [dev-dependencies]
 # specify vendored feature to use statically linked copy of OpenSSL
