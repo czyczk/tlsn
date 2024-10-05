@@ -12,8 +12,8 @@ use axum::{
 };
 use axum_macros::debug_handler;
 use chrono::Utc;
-use p256::ecdsa::{Signature, SigningKey};
-use tdn_core::session::TdnSessionData;
+use p256::ecdsa::SigningKey;
+use tdn_core::{session::TdnSessionData, sig::SignaturePrivateKey};
 use tdn_verifier::tls::{TdnVerifier, TdnVerifierConfig};
 use tlsn_verifier::tls::{Verifier, VerifierConfig};
 use tokio::{
@@ -252,7 +252,7 @@ pub async fn notary_service<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     let config = config_builder.build()?;
 
     Verifier::new(config)
-        .notarize::<_, Signature>(socket.compat(), signing_key)
+        .notarize::<_, p256::ecdsa::Signature>(socket.compat(), signing_key)
         .await?;
 
     Ok(())
@@ -261,7 +261,6 @@ pub async fn notary_service<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
 /// Run the whole TDN process, including TLS connection, collecting necessary data and notarization.
 pub async fn run_tdn_process<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(
     socket: T,
-    p256_signing_key: &SigningKey,
     evm_priv_key: Option<secp256k1::SecretKey>,
     evm_settlement_addr: Option<String>,
     tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
@@ -276,6 +275,7 @@ pub async fn run_tdn_process<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>
             "blockchain-evm-priv-key is required for TDN process".to_string(),
         )
     })?;
+    let evm_priv_key = SignaturePrivateKey::from(evm_priv_key);
     let evm_settlement_addr = evm_settlement_addr.ok_or_else(|| {
         NotaryServerError::BadConfigForTdn(
             "blockchain-evm-settlement-addr is required for TDN process".to_string(),
@@ -297,10 +297,9 @@ pub async fn run_tdn_process<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>
     let config = config_builder.build()?;
 
     TdnVerifier::new(config)
-        .collect::<_, Signature>(
+        .collect::<_, tdn_core::sig::Signature>(
             socket.compat(),
-            p256_signing_key,
-            evm_priv_key,
+            &evm_priv_key,
             evm_settlement_addr,
             tdn_store,
         )

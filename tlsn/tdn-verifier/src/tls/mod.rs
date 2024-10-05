@@ -133,8 +133,7 @@ impl TdnVerifier<state::Initialized> {
     pub async fn collect<S: AsyncWrite + AsyncRead + Send + Unpin + 'static, T>(
         self,
         socket: S,
-        signer: &impl Signer<T>,
-        evm_priv_key: secp256k1::SecretKey,
+        evm_priv_key: &impl Signer<T>,
         evm_settlement_addr: String,
         tdn_store: Arc<AsyncMutex<HashMap<String, TdnSessionData>>>,
     ) -> Result<ProofNotary, TdnVerifierError>
@@ -146,7 +145,7 @@ impl TdnVerifier<state::Initialized> {
             .run_collection(tdn_store)
             .await?
             .start_notarize()
-            .notarize(signer, evm_priv_key, evm_settlement_addr)
+            .notarize(evm_priv_key, evm_settlement_addr)
             .await
     }
 }

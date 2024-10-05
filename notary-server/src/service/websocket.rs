@@ -48,7 +48,6 @@ pub async fn websocket_tdn_collect(
     let stream = WsStream::new(socket.into_inner());
     match run_tdn_process(
         stream,
-        &notary_globals.notary_signing_key,
         notary_globals.notary_blockchain_evm_priv_key,
         notary_globals.notary_blockchain_evm_settlement_addr,
         notary_globals.tdn_store,

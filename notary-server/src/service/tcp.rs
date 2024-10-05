@@ -117,7 +117,6 @@ pub async fn tcp_tdn_collect(
     debug!(?session_id, "Upgraded to tcp connection");
     match run_tdn_process(
         stream,
-        &notary_globals.notary_signing_key,
         notary_globals.notary_blockchain_evm_priv_key,
         notary_globals.notary_blockchain_evm_settlement_addr,
         notary_globals.tdn_store,

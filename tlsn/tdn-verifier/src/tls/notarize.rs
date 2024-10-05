@@ -24,8 +24,7 @@ impl TdnVerifier<Notarize> {
     /// Notarizes the TLS session.
     pub async fn notarize<T>(
         self,
-        signer: &impl Signer<T>,
-        evm_priv_key: secp256k1::SecretKey,
+        evm_priv_key: &impl Signer<T>,
         evm_settlement_addr: String,
     ) -> Result<ProofNotary, TdnVerifierError>
     where
@@ -152,7 +151,7 @@ impl TdnVerifier<Notarize> {
                 },
                 settlement_addr_notary: evm_settlement_addr,
             };
-            let signature = signer.sign(&serde_json::to_vec(
+            let signature = evm_priv_key.sign(&serde_json::to_vec(
                 &proof_notary.to_tdn_standard_serialized(),
             )?);
 
