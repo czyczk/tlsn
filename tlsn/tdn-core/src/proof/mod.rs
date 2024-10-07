@@ -161,17 +161,6 @@ impl TryFrom<&ServerCertDetails> for Certificates {
 
 impl ToTdnStandardSerialized for Certificates {
     fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
-        let mut map_certificates = BTreeMap::new();
-        map_certificates.insert(
-            "endEntity",
-            TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&self.end_entity.0)),
-        );
-
-        let mut intermediates = Vec::new();
-        for cert in &self.intermediates {
-            intermediates.push(BASE64_STANDARD.encode(&cert.0));
-        }
-
         let mut map = BTreeMap::new();
         map.insert(
             "endEntity",
