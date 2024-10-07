@@ -80,7 +80,7 @@ impl TdnVerifier<Notarize> {
             // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
             //    generated ephemeral key pair is not needed.
             // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
-            let commitment_cipher1_priv_key_session_notary = {
+            let commitment_ciphertext1_priv_key_session_notary = {
                 // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
                 let encrypted_data = pub_key_consumer
                     .to_bytes()
@@ -147,9 +147,9 @@ impl TdnVerifier<Notarize> {
                             commitment_pwd_proof.try_into().expect("expecting 32 bytes");
                         Hash::from(arr)
                     },
-                    commitment_cipher1_priv_key_session_notary,
+                    commitment_ciphertext1_priv_key_session_notary,
                 },
-                settlement_addr_notary: evm_settlement_addr,
+                evm_settlement_addr_notary: evm_settlement_addr,
             };
             let signature = evm_priv_key.sign(&serde_json::to_vec(
                 &proof_notary.to_tdn_standard_serialized(),

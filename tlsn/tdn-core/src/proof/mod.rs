@@ -45,8 +45,8 @@ pub struct ProofNotary {
     pub tls_data: TlsData,
     /// Commitments.
     pub commitments: Commitments,
-    /// Notary settlement address.
-    pub settlement_addr_notary: String,
+    /// Notary EVM settlement address.
+    pub evm_settlement_addr_notary: String,
 }
 
 impl ToTdnStandardSerialized for ProofNotary {
@@ -55,8 +55,8 @@ impl ToTdnStandardSerialized for ProofNotary {
         map.insert("tlsData", self.tls_data.to_tdn_standard_serialized());
         map.insert("commitments", self.commitments.to_tdn_standard_serialized());
         map.insert(
-            "settlementAddrNotary",
-            TdnStandardSerializedEntry::String(self.settlement_addr_notary.clone()),
+            "evmSettlementAddrNotary",
+            TdnStandardSerializedEntry::String(self.evm_settlement_addr_notary.clone()),
         );
 
         TdnStandardSerializedEntry::Object(map)
@@ -201,7 +201,7 @@ pub struct Commitments {
     /// The commitment to the password to protect the proof.
     pub commitment_pwd_proof: Hash,
     /// The commitment to the 1st-level ciphertext of the Notary private key used in this TLS session.
-    pub commitment_cipher1_priv_key_session_notary: Hash,
+    pub commitment_ciphertext1_priv_key_session_notary: Hash,
 }
 
 impl ToTdnStandardSerialized for Commitments {
@@ -226,9 +226,12 @@ impl ToTdnStandardSerialized for Commitments {
             ),
         );
         map.insert(
-            "commitmentCipher1PrivKeySessionNotary",
+            "commitmentCiphertext1PrivKeySessionNotary",
             TdnStandardSerializedEntry::String(
-                BASE64_STANDARD.encode(self.commitment_cipher1_priv_key_session_notary.as_bytes()),
+                BASE64_STANDARD.encode(
+                    self.commitment_ciphertext1_priv_key_session_notary
+                        .as_bytes(),
+                ),
             ),
         );
 
