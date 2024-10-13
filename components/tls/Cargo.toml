@@ -37,8 +37,10 @@ tokio-util = "0.7"
 hyper = "0.14"
 
 # serialization
+base64 = "0.22"
 bytes = "1"
 serde = "1"
+serde_json = "1.0"
 
 # error/log
 tracing = "0.1"
@@ -54,6 +56,3 @@ rstest = "0.12"
 derive_builder = "0.12"
 enum-try-as-inner = "0.1"
 web-time = "0.2"
-
-base64 = "0.22"
-serde_json = "1.0"

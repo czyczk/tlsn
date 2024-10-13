@@ -184,6 +184,12 @@ impl TdnProver<state::Setup> {
                         },
                         random_client: mpc_tls_data.client_random.0,
                         random_server: mpc_tls_data.server_random.0,
+                        priv_key_session_prover: mpc_tls_data
+                            .private_key
+                            .clone()
+                            .unwrap()
+                            .to_bytes()
+                            .to_vec(),
                         pub_key_session_notary: mpc_tls_data.notary_session_public_key.unwrap(),
                         pub_key_session_prover: PublicKey::from(
                             mpc_tls_data.private_key.unwrap().public_key(),
@@ -246,6 +252,7 @@ impl TdnProver<state::TdnClosed> {
             ),
             random_client: self.state.random_client.to_vec(),
             random_server: self.state.random_server.to_vec(),
+            priv_key_session_prover: self.state.priv_key_session_prover.clone(),
             ciphertext_application_data_server: self
                 .state
                 .ciphertext_application_data_server

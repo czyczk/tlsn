@@ -111,6 +111,7 @@ impl TdnProver<Notarize> {
         let NotarizationResult {
             proof_notary,
             signature,
+            ciphertext1_priv_key_session_notary,
         } = futures::select_biased! {
             res = notarize_fut => res?,
             _ = ot_fut => return Err(OTShutdownError)?,
@@ -122,6 +123,7 @@ impl TdnProver<Notarize> {
         Ok(SignedProofNotary {
             proof_notary,
             signature,
+            ciphertext1_priv_key_session_notary,
         })
     }
 }

@@ -16,6 +16,56 @@ pub enum TdnProofError {
     CertificateError,
 }
 
+/// A proof with a signature from Prover.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedProofProver {
+    /// Prover proof.
+    pub proof_prover: ProofProver,
+    /// Signature of Prover proof.
+    pub signature: Signature,
+}
+
+impl ToTdnStandardSerialized for SignedProofProver {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "proofProver",
+            self.proof_prover.to_tdn_standard_serialized(),
+        );
+        map.insert("signature", self.signature.to_tdn_standard_serialized());
+
+        TdnStandardSerializedEntry::Object(map)
+    }
+}
+
+/// Proof produced by Prover.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProofProver {
+    /// Notary proof with Notary signature.
+    pub signed_proof_notary: SignedProofNotary,
+    /// Security data (such as secured keys used in this TLS session).
+    pub security: Security,
+    /// Prover EVM settlement address.
+    pub evm_settlement_addr_prover: String,
+}
+
+impl ToTdnStandardSerialized for ProofProver {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "signedProofNotary",
+            self.signed_proof_notary.to_tdn_standard_serialized(),
+        );
+        map.insert("security", self.security.to_tdn_standard_serialized());
+        map.insert(
+            "evmSettlementAddrProver",
+            TdnStandardSerializedEntry::String(self.evm_settlement_addr_prover.clone()),
+        );
+
+        TdnStandardSerializedEntry::Object(map)
+    }
+}
+
 /// A validated notarization from Notary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SignedProofNotary {
@@ -23,6 +73,8 @@ pub struct SignedProofNotary {
     pub proof_notary: ProofNotary,
     /// Signature of Notary proof.
     pub signature: Signature,
+    /// 1st-level ciphertext of the Notary private key used in this TLS session.
+    pub ciphertext1_priv_key_session_notary: Vec<u8>,
 }
 
 impl ToTdnStandardSerialized for SignedProofNotary {
@@ -33,6 +85,12 @@ impl ToTdnStandardSerialized for SignedProofNotary {
             self.proof_notary.to_tdn_standard_serialized(),
         );
         map.insert("signature", self.signature.to_tdn_standard_serialized());
+        map.insert(
+            "ciphertext1PrivKeySessionNotary",
+            TdnStandardSerializedEntry::String(
+                BASE64_STANDARD.encode(&self.ciphertext1_priv_key_session_notary),
+            ),
+        );
 
         TdnStandardSerializedEntry::Object(map)
     }
@@ -57,6 +115,35 @@ impl ToTdnStandardSerialized for ProofNotary {
         map.insert(
             "evmSettlementAddrNotary",
             TdnStandardSerializedEntry::String(self.evm_settlement_addr_notary.clone()),
+        );
+
+        TdnStandardSerializedEntry::Object(map)
+    }
+}
+
+/// Security data (such as secured keys used in this TLS session).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Security {
+    /// 2nd-level ciphertext of the Notary private key used in this TLS session.
+    pub ciphertext2_priv_key_session_notary: Vec<u8>,
+    /// 2nd-level ciphertext of the Prover private key used in this TLS session.
+    pub ciphertext2_priv_key_session_prover: Vec<u8>,
+}
+
+impl ToTdnStandardSerialized for Security {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "ciphertext2PrivKeySessionNotary",
+            TdnStandardSerializedEntry::String(
+                BASE64_STANDARD.encode(&self.ciphertext2_priv_key_session_notary),
+            ),
+        );
+        map.insert(
+            "ciphertext2PrivKeySessionProver",
+            TdnStandardSerializedEntry::String(
+                BASE64_STANDARD.encode(&self.ciphertext2_priv_key_session_prover),
+            ),
         );
 
         TdnStandardSerializedEntry::Object(map)

@@ -59,6 +59,7 @@ pub struct TdnClosed {
     pub(crate) random_client: [u8; 32],
     pub(crate) random_server: [u8; 32],
 
+    pub(crate) priv_key_session_prover: Vec<u8>,
     pub(crate) pub_key_session_notary: PublicKey,
     pub(crate) pub_key_session_prover: PublicKey,
     pub(crate) curve_params: Vec<u8>,

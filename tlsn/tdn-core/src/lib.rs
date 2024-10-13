@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+pub mod crypto;
 pub mod msg;
 pub mod proof;
 pub mod session;

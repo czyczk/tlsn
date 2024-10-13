@@ -8,6 +8,7 @@ use super::{TdnVerifier, TdnVerifierError};
 use futures::{FutureExt as _, SinkExt, StreamExt, TryFutureExt};
 use mpz_core::{hash::Hash, serialize::CanonicalSerialize};
 use signature::Signer;
+use tdn_core::crypto::direct_asymmetric_encrypt;
 use tdn_core::sig::Signature;
 use tdn_core::{
     msg::{NotarizationResult, TdnMessage},
@@ -80,16 +81,14 @@ impl TdnVerifier<Notarize> {
             // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
             //    generated ephemeral key pair is not needed.
             // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
-            let commitment_ciphertext1_priv_key_session_notary = {
+            let ciphertext1_priv_key_session_notary = direct_asymmetric_encrypt(
                 // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
-                let encrypted_data = pub_key_consumer
-                    .to_bytes()
-                    .iter()
-                    .zip(tdn_session_data.priv_key_session_notary.iter())
-                    .map(|(b, d)| b ^ d)
-                    .collect::<Vec<u8>>();
+                &pub_key_consumer.to_bytes(),
+                &tdn_session_data.priv_key_session_notary,
+            );
+            let commitment_ciphertext1_priv_key_session_notary = {
                 // Blake3 hash it.
-                let hash: [u8; 32] = blake3::hash(&encrypted_data).into();
+                let hash: [u8; 32] = blake3::hash(&ciphertext1_priv_key_session_notary).into();
                 Hash::from(hash)
             };
 
@@ -160,14 +159,15 @@ impl TdnVerifier<Notarize> {
             #[cfg(feature = "tracing")]
             info!(
                 notary_proof_signature = ?signature,
-                "TDN log: MPC finalize; generated notary proof signature; sent through channel 'notarize' later.",
+                "TDN log: generated notary proof signature; sent through channel 'notarize' later.",
             );
-            println!("TDN log: MPC finalize; generated notary proof signature; sent through channel 'notarize' later; notary_proof_signature: {:?}", signature);
+            println!("TDN log: generated notary proof signature; sent through channel 'notarize' later; notary_proof_signature: {:?}", signature);
 
             notarize_channel
                 .send(TdnMessage::NotarizationResult(NotarizationResult {
                     proof_notary: proof_notary.clone(),
                     signature: signature.into(),
+                    ciphertext1_priv_key_session_notary,
                 }))
                 .await?;
 

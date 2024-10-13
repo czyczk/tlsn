@@ -34,6 +34,8 @@ pub struct TdnCollectLeaderResult {
     pub random_client: Vec<u8>,
     /// Server random.
     pub random_server: Vec<u8>,
+    /// Prover private key used in this session.
+    pub priv_key_session_prover: Vec<u8>,
     /// Ciphertext of the application data from the server collected in this session.
     pub ciphertext_application_data_server: Vec<u8>,
 }

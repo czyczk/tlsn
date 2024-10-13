@@ -30,4 +30,6 @@ pub struct NotarizationResult {
     pub proof_notary: ProofNotary,
     /// The notary's signature.
     pub signature: Signature,
+    /// 1st-level ciphertext of the notary's private key used in this TLS session.
+    pub ciphertext1_priv_key_session_notary: Vec<u8>,
 }
