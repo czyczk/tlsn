@@ -68,7 +68,7 @@ pub fn derive_key_pbkdf2(
     })
 }
 
-/// AES-256 CBC symmetric encryption.
+/// AES-256 GCM symmetric encryption.
 ///
 /// # Arguments
 ///
@@ -79,7 +79,7 @@ pub fn derive_key_pbkdf2(
 /// # Returns
 ///
 /// Encrypted data.
-pub fn symmetric_encrypt_aes256_cbc(
+pub fn symmetric_encrypt_aes256_gcm(
     key: &[u8],
     data: &[u8],
     nonce: Option<&[u8; 12]>,
