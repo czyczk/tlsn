@@ -8,7 +8,7 @@ use super::{TdnVerifier, TdnVerifierError};
 use futures::{FutureExt as _, SinkExt, StreamExt, TryFutureExt};
 use mpz_core::{hash::Hash, serialize::CanonicalSerialize};
 use signature::Signer;
-use tdn_core::crypto::direct_asymmetric_encrypt;
+use tdn_core::crypto::hybrid_encrypt_ecies;
 use tdn_core::sig::Signature;
 use tdn_core::{
     msg::{NotarizationResult, TdnMessage},
@@ -77,15 +77,16 @@ impl TdnVerifier<Notarize> {
                 blake3::hash(&tdn_session_data.ciphertext_application_data_server).into();
 
             // Encrypt `priv_key_session_notary` from `tdn_session_data` against `pub_key_consumer`.
-            // Perform direct asymmetric encryption because of several reasons:
-            // 1. The content to be encrypted is already ephemeral (changes in every session) so an additional
-            //    generated ephemeral key pair is not needed.
-            // 2. The content to be encrypted is small enough so a direct asymmetric encryption is sufficient.
-            let ciphertext1_priv_key_session_notary = direct_asymmetric_encrypt(
+            let ciphertext1_priv_key_session_notary = hybrid_encrypt_ecies(
                 // The public key bytes are already in SEC1 uncompressed format which can be directly used here.
                 &pub_key_consumer.to_bytes(),
                 &tdn_session_data.priv_key_session_notary,
-            );
+                None,
+                None,
+                None,
+            )
+            .map_err(|e| TdnVerifierError::EncryptionError(e.to_string()))?
+            .serialize();
             let commitment_ciphertext1_priv_key_session_notary = {
                 // Blake3 hash it.
                 let hash: [u8; 32] = blake3::hash(&ciphertext1_priv_key_session_notary).into();

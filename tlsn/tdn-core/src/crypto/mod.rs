@@ -1,7 +1,11 @@
 //! TDN crypto utils.
 
-use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
+use aes_gcm::{
+    aead::{Aead, OsRng},
+    Aes256Gcm, KeyInit,
+};
 use pbkdf2::{hmac::SimpleHmac, pbkdf2};
+use secp256k1::Secp256k1;
 use tls_core::rand;
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -9,6 +13,10 @@ use tls_core::rand;
 pub enum TdnCryptoError {
     #[error("Cannot derive key: {0}")]
     DeriveKeyError(String),
+    #[error("Cannot load key: {0}")]
+    LoadKeyError(String),
+    #[error("Encryption error: {0}")]
+    EncryptionError(String),
 }
 
 pub(crate) const DEFAULT_ITERATIONS: u32 = 10_000;
@@ -29,12 +37,49 @@ pub struct EncryptedData {
     pub iv: Vec<u8>,
 }
 
+/// Hybrid encryption result.
+pub struct HybridEncryptedData {
+    /// Encrypted ciphertext.
+    pub ciphertext: Vec<u8>,
+    /// Salt.
+    pub salt: Vec<u8>,
+    /// IV / nonce.
+    pub iv: Vec<u8>,
+    /// Ephemeral public key.
+    pub ephemeral_pub_key: Vec<u8>,
+}
+
+impl EncryptedData {
+    /// Serializes [EncryptedData] together with a salt. The order is ciphertext, salt, IV.
+    pub fn serialize_with_nonce(&self, salt: &[u8]) -> Vec<u8> {
+        let mut result = Vec::with_capacity(self.ciphertext.len() + salt.len() + self.iv.len());
+        result.extend_from_slice(&self.ciphertext);
+        result.extend_from_slice(&salt);
+        result.extend_from_slice(&self.iv);
+        result
+    }
+}
+
+impl HybridEncryptedData {
+    /// Serializes [HybridEncryptedData]. The order is ciphertext, salt, IV, ephemeral public key.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(
+            self.ciphertext.len() + self.salt.len() + self.iv.len() + self.ephemeral_pub_key.len(),
+        );
+        result.extend_from_slice(&self.ciphertext);
+        result.extend_from_slice(&self.salt);
+        result.extend_from_slice(&self.iv);
+        result.extend_from_slice(&self.ephemeral_pub_key);
+        result
+    }
+}
+
 /// PBKDF2 key derivation. HMAC with BLAKE3 is used.
 ///
 /// # Arguments
 ///
 /// * `pwd` - Password.
-/// * `salt` - Salt (optional, randomly generated when not specified, 16 bytes).
+/// * `salt` - Salt (optional, randomly generated when not specified, 16 bytes). Use a fixed salt for predictable results in tests only.
 /// * `iterations` - Iterations (optional, by default [DEFAULT_ITERATIONS]).
 ///
 /// # Returns
@@ -68,13 +113,51 @@ pub fn derive_key_pbkdf2(
     })
 }
 
+/// HKDF key derivation. BLAKE3 is used.
+///
+/// # Arguments
+///
+/// * `secret` - Secret.
+/// * `salt` - Salt (optional, randomly generated when not specified, 16 bytes). Use a fixed salt for predictable results in tests only.
+/// * `output_length` - Output key length.
+///
+/// # Returns
+///
+/// Key derivation result. The key is of the specified length.
+pub fn derive_key_hkdf(
+    secret: &[u8],
+    salt: Option<&[u8; 16]>,
+    output_length: usize,
+) -> Result<DerivedKey, TdnCryptoError> {
+    // Generate salt if not provided.
+    let salt = match salt {
+        Some(s) => s.to_vec(),
+        None => {
+            let mut s = vec![0; 16];
+            rand::fill_random(&mut s).map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+            s
+        }
+    };
+
+    let info = b"";
+    let hk = hkdf::SimpleHkdf::<blake3::Hasher>::new(Some(&salt), secret);
+    let mut okm = Vec::with_capacity(output_length);
+    hk.expand(info, &mut okm)
+        .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+
+    Ok(DerivedKey {
+        key: okm.to_vec(),
+        salt,
+    })
+}
+
 /// AES-256 GCM symmetric encryption.
 ///
 /// # Arguments
 ///
 /// * `key` - Key (32 bytes).
-/// * `nonce` - Nonce (optional, randomly generated when not specified, 12 bytes for GCM).
 /// * `data` - Data to encrypt.
+/// * `nonce` - Nonce (optional, randomly generated when not specified, 12 bytes for GCM). Use a fixed nonce for predictable results in tests only.
 ///
 /// # Returns
 ///
@@ -84,14 +167,10 @@ pub fn symmetric_encrypt_aes256_gcm(
     data: &[u8],
     nonce: Option<&[u8; 12]>,
 ) -> Result<EncryptedData, TdnCryptoError> {
+    // Generate nonce if not provided.
     let nonce = match nonce {
         Some(nonce) => nonce.to_owned(),
-        None => {
-            let mut nonce = [0u8; 12];
-            rand::fill_random(&mut nonce)
-                .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
-            nonce
-        }
+        None => gen_random_nonce()?,
     };
 
     let cipher = Aes256Gcm::new_from_slice(key)
@@ -106,13 +185,79 @@ pub fn symmetric_encrypt_aes256_gcm(
     })
 }
 
-/// Perform direct asymmetric encryption using the given public key.
+/// Perform the ECIES hybrid encryption using the given public key.
 /// The key should be in SEC1 uncompressed format.
-/// Note that direct asymmetric encryption is only suitable for small and ephemeral data.
-pub fn direct_asymmetric_encrypt(pub_key: &[u8], data: &[u8]) -> Vec<u8> {
-    pub_key
-        .iter()
-        .zip(data.iter())
-        .map(|(b, d)| b ^ d)
-        .collect()
+/// We have this because direct asymmetric encryption is not recommended.
+/// Direct asymmetric encryption is only suitable for small and ephemeral data
+/// and yet it's slower compared to all the processes involved in ECIES combined.
+///
+/// # Arguments
+///
+/// * `pub_key` - Public key (65 bytes).
+/// * `data` - Data to encrypt.
+/// * `ephemeral_key_pair` - Ephemeral key pair (optional, randomly generated when not specified). Use a fixed key pair for predictable results in tests only.
+/// * `salt` - Salt (optional, randomly generated when not specified, 16 bytes). Use a fixed salt for predictable results in tests only.
+/// * `nonce` - Nonce (optional, randomly generated when not specified, 12 bytes for GCM). Use a fixed nonce for predictable results in tests only.
+///
+/// # Returns
+///
+/// Hybrid encrypted data.
+pub fn hybrid_encrypt_ecies(
+    pub_key: &[u8],
+    data: &[u8],
+    ephemeral_key_pair: Option<(&[u8], &[u8])>,
+    salt: Option<&[u8; 16]>,
+    nonce: Option<&[u8; 12]>,
+) -> Result<HybridEncryptedData, TdnCryptoError> {
+    // Generate salt if not provided.
+    let salt = match salt {
+        Some(s) => s.to_owned(),
+        None => {
+            let mut s = [0u8; 16];
+            rand::fill_random(&mut s)
+                .map_err(|e| TdnCryptoError::EncryptionError(e.to_string()))?;
+            s
+        }
+    };
+
+    // Generate ephemeral key pair if not provided.
+    let (ephemeral_priv_key, ephemeral_pub_key) = match ephemeral_key_pair {
+        Some((priv_key, pub_key)) => (
+            secp256k1::SecretKey::from_slice(priv_key)
+                .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?,
+            secp256k1::PublicKey::from_slice(pub_key)
+                .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?,
+        ),
+        None => Secp256k1::new().generate_keypair(&mut OsRng),
+    };
+
+    // Generate nonce if not provided.
+    let nonce = match nonce {
+        Some(nonce) => nonce.to_owned(),
+        None => gen_random_nonce()?,
+    };
+
+    // ECDH to derive a shared secret.
+    let pub_key = secp256k1::PublicKey::from_slice(pub_key)
+        .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?;
+    let shared_secret = secp256k1::ecdh::SharedSecret::new(&pub_key, &ephemeral_priv_key);
+
+    // Derive a key using HKDF.
+    let derived_key = derive_key_hkdf(&shared_secret.secret_bytes()[..], Some(&salt), 32)?;
+
+    // AES-256 GCM encryption.
+    let encrypted_data = symmetric_encrypt_aes256_gcm(&derived_key.key, data, Some(&nonce))?;
+
+    Ok(HybridEncryptedData {
+        ciphertext: encrypted_data.ciphertext,
+        salt: salt.to_vec(),
+        iv: encrypted_data.iv,
+        ephemeral_pub_key: ephemeral_pub_key.serialize_uncompressed().to_vec(),
+    })
+}
+
+fn gen_random_nonce() -> Result<[u8; 12], TdnCryptoError> {
+    let mut nonce = [0u8; 12];
+    rand::fill_random(&mut nonce).map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+    Ok(nonce)
 }

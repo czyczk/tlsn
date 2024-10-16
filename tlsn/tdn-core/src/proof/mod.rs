@@ -41,8 +41,8 @@ impl ToTdnStandardSerialized for SignedProofProver {
 /// Proof produced by Prover.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProofProver {
-    /// Notary proof with Notary signature.
-    pub signed_proof_notary: SignedProofNotary,
+    /// Notary proof.
+    pub proof_notary: ProofNotary,
     /// Security data (such as secured keys used in this TLS session).
     pub security: Security,
     /// Prover EVM settlement address.
@@ -53,8 +53,8 @@ impl ToTdnStandardSerialized for ProofProver {
     fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
         let mut map = BTreeMap::new();
         map.insert(
-            "signedProofNotary",
-            self.signed_proof_notary.to_tdn_standard_serialized(),
+            "proofNotary",
+            self.proof_notary.to_tdn_standard_serialized(),
         );
         map.insert("security", self.security.to_tdn_standard_serialized());
         map.insert(
