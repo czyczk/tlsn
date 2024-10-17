@@ -95,7 +95,12 @@ pub fn derive_key_pbkdf2(
         Some(s) => s.to_vec(),
         None => {
             let mut s = vec![0; 16];
-            rand::fill_random(&mut s).map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+            rand::fill_random(&mut s).map_err(|e| {
+                TdnCryptoError::DeriveKeyError(format!(
+                    "Failed to generate salt: {}",
+                    e.to_string()
+                ))
+            })?;
             s
         }
     };
@@ -104,8 +109,14 @@ pub fn derive_key_pbkdf2(
 
     // Derive a key using PBKDF2.
     let mut key = [0u8; 32];
-    pbkdf2::<SimpleHmac<blake3::Hasher>>(&pwd.as_bytes(), &salt, iterations, &mut key)
-        .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+    pbkdf2::<SimpleHmac<blake3::Hasher>>(&pwd.as_bytes(), &salt, iterations, &mut key).map_err(
+        |e| {
+            TdnCryptoError::DeriveKeyError(format!(
+                "PBKDF2 key derivation failed: {}",
+                e.to_string()
+            ))
+        },
+    )?;
 
     Ok(DerivedKey {
         key: key.to_vec(),
@@ -134,16 +145,22 @@ pub fn derive_key_hkdf(
         Some(s) => s.to_vec(),
         None => {
             let mut s = vec![0; 16];
-            rand::fill_random(&mut s).map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+            rand::fill_random(&mut s).map_err(|e| {
+                TdnCryptoError::DeriveKeyError(format!(
+                    "Failed to generate salt: {}",
+                    e.to_string()
+                ))
+            })?;
             s
         }
     };
 
     let info = b"";
     let hk = hkdf::SimpleHkdf::<blake3::Hasher>::new(Some(&salt), secret);
-    let mut okm = Vec::with_capacity(output_length);
-    hk.expand(info, &mut okm)
-        .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+    let mut okm = vec![0u8; output_length];
+    hk.expand(info, &mut okm).map_err(|e| {
+        TdnCryptoError::DeriveKeyError(format!("HKDF key derivation failed: {}", e.to_string()))
+    })?;
 
     Ok(DerivedKey {
         key: okm.to_vec(),
@@ -173,11 +190,15 @@ pub fn symmetric_encrypt_aes256_gcm(
         None => gen_random_nonce()?,
     };
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| {
+        TdnCryptoError::EncryptionError(format!(
+            "Failed to create AES-256 GCM cipher: {}",
+            e.to_string()
+        ))
+    })?;
     let ciphertext = cipher
         .encrypt(&nonce.into(), data)
-        .map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+        .map_err(|e| TdnCryptoError::EncryptionError(e.to_string()))?;
 
     Ok(EncryptedData {
         ciphertext,
@@ -195,7 +216,7 @@ pub fn symmetric_encrypt_aes256_gcm(
 ///
 /// * `pub_key` - Public key (65 bytes).
 /// * `data` - Data to encrypt.
-/// * `ephemeral_key_pair` - Ephemeral key pair (optional, randomly generated when not specified). Use a fixed key pair for predictable results in tests only.
+/// * `ephemeral_priv_key` - Ephemeral private key (optional, randomly generated when not specified). Use a fixed key for predictable results in tests only.
 /// * `salt` - Salt (optional, randomly generated when not specified, 16 bytes). Use a fixed salt for predictable results in tests only.
 /// * `nonce` - Nonce (optional, randomly generated when not specified, 12 bytes for GCM). Use a fixed nonce for predictable results in tests only.
 ///
@@ -205,7 +226,7 @@ pub fn symmetric_encrypt_aes256_gcm(
 pub fn hybrid_encrypt_ecies(
     pub_key: &[u8],
     data: &[u8],
-    ephemeral_key_pair: Option<(&[u8], &[u8])>,
+    ephemeral_priv_key: Option<&[u8; 32]>,
     salt: Option<&[u8; 16]>,
     nonce: Option<&[u8; 12]>,
 ) -> Result<HybridEncryptedData, TdnCryptoError> {
@@ -214,20 +235,30 @@ pub fn hybrid_encrypt_ecies(
         Some(s) => s.to_owned(),
         None => {
             let mut s = [0u8; 16];
-            rand::fill_random(&mut s)
-                .map_err(|e| TdnCryptoError::EncryptionError(e.to_string()))?;
+            rand::fill_random(&mut s).map_err(|e| {
+                TdnCryptoError::EncryptionError(format!(
+                    "Failed to generate salt: {}",
+                    e.to_string()
+                ))
+            })?;
             s
         }
     };
 
     // Generate ephemeral key pair if not provided.
-    let (ephemeral_priv_key, ephemeral_pub_key) = match ephemeral_key_pair {
-        Some((priv_key, pub_key)) => (
-            secp256k1::SecretKey::from_slice(priv_key)
-                .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?,
-            secp256k1::PublicKey::from_slice(pub_key)
-                .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?,
-        ),
+    let (ephemeral_priv_key, ephemeral_pub_key) = match ephemeral_priv_key {
+        Some(bytes) => {
+            let ephemeral_priv_key = secp256k1::SecretKey::from_slice(bytes).map_err(|e| {
+                TdnCryptoError::LoadKeyError(format!(
+                    "Invalid ephemeral private key: {}",
+                    e.to_string()
+                ))
+            })?;
+            (
+                ephemeral_priv_key,
+                ephemeral_priv_key.public_key(&Secp256k1::new()),
+            )
+        }
         None => Secp256k1::new().generate_keypair(&mut OsRng),
     };
 
@@ -239,7 +270,7 @@ pub fn hybrid_encrypt_ecies(
 
     // ECDH to derive a shared secret.
     let pub_key = secp256k1::PublicKey::from_slice(pub_key)
-        .map_err(|e| TdnCryptoError::LoadKeyError(e.to_string()))?;
+        .map_err(|e| TdnCryptoError::LoadKeyError(format!("ECDH failed: {}", e.to_string())))?;
     let shared_secret = secp256k1::ecdh::SharedSecret::new(&pub_key, &ephemeral_priv_key);
 
     // Derive a key using HKDF.
@@ -258,6 +289,8 @@ pub fn hybrid_encrypt_ecies(
 
 fn gen_random_nonce() -> Result<[u8; 12], TdnCryptoError> {
     let mut nonce = [0u8; 12];
-    rand::fill_random(&mut nonce).map_err(|e| TdnCryptoError::DeriveKeyError(e.to_string()))?;
+    rand::fill_random(&mut nonce).map_err(|e| {
+        TdnCryptoError::DeriveKeyError(format!("Failed to generate nonce: {}", e.to_string()))
+    })?;
     Ok(nonce)
 }
