@@ -1,9 +1,9 @@
 //! Protocol message types.
 
 use serde::{Deserialize, Serialize};
-use tls_core::key::PublicKey;
 
 use crate::{
+    crypto::PublicKey,
     proof::{Certificates, ProofNotary},
     sig::Signature,
 };

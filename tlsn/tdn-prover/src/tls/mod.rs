@@ -16,10 +16,10 @@ pub use error::ProverError;
 pub use future::ProverFuture;
 use state::Notarize;
 use tdn_core::{
+    crypto::PublicKey,
     proof::Certificates,
     session::{TdnCollectLeaderResult, TdnSessionId},
 };
-use tls_core::key::PublicKey;
 use tlsn_common::{
     mux::{attach_mux, MuxControl},
     Role,
@@ -178,7 +178,7 @@ impl TdnProver<state::Setup> {
                             handshake_decommitment: mpc_tls_data
                                 .handshake_decommitment
                                 .expect("handshake was committed"),
-                            server_public_key: mpc_tls_data.server_public_key,
+                            server_public_key: mpc_tls_data.server_public_key.try_into().unwrap(),
                             transcript_tx: Transcript::new(sent),
                             transcript_rx: Transcript::new(recv),
                         },
@@ -190,7 +190,11 @@ impl TdnProver<state::Setup> {
                             .unwrap()
                             .to_bytes()
                             .to_vec(),
-                        pub_key_session_notary: mpc_tls_data.notary_session_public_key.unwrap(),
+                        pub_key_session_notary: mpc_tls_data
+                            .notary_session_public_key
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
                         pub_key_session_prover: PublicKey::from(
                             mpc_tls_data.private_key.unwrap().public_key(),
                         ),

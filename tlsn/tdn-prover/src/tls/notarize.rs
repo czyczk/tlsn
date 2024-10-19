@@ -7,10 +7,10 @@ use crate::tls::error::OTShutdownError;
 use super::{ff::ShareConversionReveal, state::Notarize, ProverError, TdnProver};
 use futures::{FutureExt, SinkExt, StreamExt};
 use tdn_core::{
+    crypto::PublicKey,
     msg::{NotarizationResult, TdnMessage},
     proof::SignedProofNotary,
 };
-use tls_core::{key::PublicKey, msgs::enums::NamedGroup};
 use tlsn_core::{commitment::TranscriptCommitmentBuilder, transcript::Transcript};
 #[cfg(feature = "tracing")]
 use tracing::{info, instrument};
@@ -69,7 +69,10 @@ impl TdnProver<Notarize> {
             #[cfg(feature = "tracing")]
             info!("TDN log: P-send->N: TdnMessage::PubKeyConsumer");
 
-            let pub_key_consumer = PublicKey::new(NamedGroup::secp256r1, &pub_key_consumer);
+            let pub_key_consumer =
+                PublicKey::from(p256::PublicKey::from_sec1_bytes(&pub_key_consumer).map_err(
+                    |e| ProverError::NotarizationError(format!("Invalid public key: {}", e)),
+                )?);
             channel
                 .send(TdnMessage::PubKeyConsumer(pub_key_consumer))
                 .await?;

@@ -6,16 +6,16 @@ use crate::tls::state::Notarize;
 
 use super::{TdnVerifier, TdnVerifierError};
 use futures::{FutureExt as _, SinkExt, StreamExt, TryFutureExt};
-use mpz_core::{hash::Hash, serialize::CanonicalSerialize};
+use mpz_core::hash::Hash;
 use signature::Signer;
 use tdn_core::crypto::hybrid_encrypt_ecies;
 use tdn_core::sig::Signature;
 use tdn_core::{
+    crypto::PublicKey,
     msg::{NotarizationResult, TdnMessage},
     proof::{Commitments, Kx, ProofNotary, TlsData},
     ToTdnStandardSerialized,
 };
-use tls_core::key::PublicKey;
 use utils_aio::{expect_msg_or_err, mux::MuxChannel};
 
 #[cfg(feature = "tracing")]
@@ -126,7 +126,9 @@ impl TdnVerifier<Notarize> {
                         )
                         .to_bytes(),
                         pub_key_session_prover: pub_key_session_prover.to_bytes(),
-                        pub_key_session_server: server_ephemeral_key.to_bytes(),
+                        pub_key_session_server: PublicKey::try_from(server_ephemeral_key)
+                            .map_err(|e| TdnVerifierError::PublicKeyError(e.to_string()))?
+                            .to_bytes(),
                         kx_params: tdn_session_data.kx_params,
                     },
                     certificates,

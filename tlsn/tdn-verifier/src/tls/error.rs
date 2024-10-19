@@ -17,6 +17,8 @@ pub enum TdnVerifierError {
     SerdeError(#[from] serde_json::Error),
     #[error("Error occurred while using private key: {0}")]
     PrivateKeyError(String),
+    #[error("Error occurred while using public key: {0}")]
+    PublicKeyError(String),
     #[error("Error occurred while performing encryption: {0}")]
     EncryptionError(String),
 }
