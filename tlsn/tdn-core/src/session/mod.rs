@@ -4,8 +4,12 @@ pub mod ciphertext;
 pub mod keyexchange;
 pub mod settlement;
 
+use std::collections::BTreeMap;
+
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
+
+use crate::{TdnStandardSerializedEntry, ToTdnStandardSerialized};
 
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
@@ -53,6 +57,8 @@ pub struct TdnSessionData {
     pub priv_key_session_notary: Vec<u8>,
     /// Key exchange params.
     pub kx_params: Vec<u8>,
+    /// Server's signature on the key exchange params.
+    pub signature_kx_params: Vec<u8>,
     /// Ciphertext of the application data from the server collected in this session.
     pub ciphertext_application_data_server: Vec<u8>,
     /// Handshake commitment.
@@ -88,5 +94,21 @@ impl TdnSessionId {
             random_client: BASE64_STANDARD.decode(parts[0].as_bytes())?,
             random_server: BASE64_STANDARD.decode(parts[1].as_bytes())?,
         })
+    }
+}
+
+impl ToTdnStandardSerialized for TdnSessionId {
+    fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "randomClient",
+            TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&self.random_client)),
+        );
+        map.insert(
+            "randomServer",
+            TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&self.random_server)),
+        );
+
+        TdnStandardSerializedEntry::Object(map)
     }
 }

@@ -130,6 +130,7 @@ impl TdnVerifier<Notarize> {
                             .map_err(|e| TdnVerifierError::PublicKeyError(e.to_string()))?
                             .to_bytes(),
                         kx_params: tdn_session_data.kx_params,
+                        signature_kx_params_server: tdn_session_data.signature_kx_params,
                     },
                     certificates,
                 },
@@ -151,7 +152,7 @@ impl TdnVerifier<Notarize> {
                     },
                     commitment_ciphertext1_priv_key_session_notary,
                 },
-                evm_settlement_addr_notary: evm_settlement_addr,
+                settlement_address_notary: evm_settlement_addr,
             };
             let signature = evm_priv_key.sign(&serde_json::to_vec(
                 &proof_notary.to_tdn_standard_serialized(),

@@ -45,8 +45,8 @@ pub struct ProofProver {
     pub proof_notary: ProofNotary,
     /// Security data (such as secured keys used in this TLS session).
     pub security: Security,
-    /// Prover EVM settlement address.
-    pub evm_settlement_addr_prover: String,
+    /// Prover settlement address.
+    pub settlement_address_prover: String,
 }
 
 impl ToTdnStandardSerialized for ProofProver {
@@ -58,8 +58,8 @@ impl ToTdnStandardSerialized for ProofProver {
         );
         map.insert("security", self.security.to_tdn_standard_serialized());
         map.insert(
-            "evmSettlementAddrProver",
-            TdnStandardSerializedEntry::String(self.evm_settlement_addr_prover.clone()),
+            "settlementAddressProver",
+            TdnStandardSerializedEntry::String(self.settlement_address_prover.clone()),
         );
 
         TdnStandardSerializedEntry::Object(map)
@@ -103,8 +103,8 @@ pub struct ProofNotary {
     pub tls_data: TlsData,
     /// Commitments.
     pub commitments: Commitments,
-    /// Notary EVM settlement address.
-    pub evm_settlement_addr_notary: String,
+    /// Notary settlement address.
+    pub settlement_address_notary: String,
 }
 
 impl ToTdnStandardSerialized for ProofNotary {
@@ -113,8 +113,8 @@ impl ToTdnStandardSerialized for ProofNotary {
         map.insert("tlsData", self.tls_data.to_tdn_standard_serialized());
         map.insert("commitments", self.commitments.to_tdn_standard_serialized());
         map.insert(
-            "evmSettlementAddrNotary",
-            TdnStandardSerializedEntry::String(self.evm_settlement_addr_notary.clone()),
+            "settlementAddressNotary",
+            TdnStandardSerializedEntry::String(self.settlement_address_notary.clone()),
         );
 
         TdnStandardSerializedEntry::Object(map)
@@ -164,10 +164,7 @@ pub struct TlsData {
 impl ToTdnStandardSerialized for TlsData {
     fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
         let mut map = BTreeMap::new();
-        map.insert(
-            "sessionId",
-            TdnStandardSerializedEntry::String(self.session_id.to_base64_concat()),
-        );
+        map.insert("sessionId", self.session_id.to_tdn_standard_serialized());
         map.insert("kx", self.kx.to_tdn_standard_serialized());
         map.insert(
             "certificates",
@@ -189,6 +186,8 @@ pub struct Kx {
     pub pub_key_session_server: Vec<u8>,
     /// Key exchange parameters used in this TLS session.
     pub kx_params: Vec<u8>,
+    /// Server's signature on the key exchange parameters.
+    pub signature_kx_params_server: Vec<u8>,
 }
 
 impl ToTdnStandardSerialized for Kx {
@@ -216,6 +215,12 @@ impl ToTdnStandardSerialized for Kx {
             "kxParams",
             TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&self.kx_params)),
         );
+        map.insert(
+            "signatureKxParamsServer",
+            TdnStandardSerializedEntry::String(
+                BASE64_STANDARD.encode(&self.signature_kx_params_server),
+            ),
+        );
 
         TdnStandardSerializedEntry::Object(map)
     }
@@ -224,25 +229,28 @@ impl ToTdnStandardSerialized for Kx {
 /// Contains the certificates in this TDN session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Certificates {
-    /// The current certificate of the server.
-    pub end_entity: Certificate,
-    /// The intermediate certificates on the path to the root certificate.
-    pub intermediates: Vec<Certificate>,
+    /// The current certificate (first one) and intermediate certificates on the path to the root certificate.
+    pub certs_server: Vec<Certificate>,
+}
+
+impl Certificates {
+    /// Creates a new [Certificates] instance.
+    pub fn new(cert_details: &ServerCertDetails) -> Result<Self, TdnProofError> {
+        if cert_details.cert_chain().is_empty() {
+            return Err(TdnProofError::CertificateError);
+        }
+
+        Ok(Self {
+            certs_server: cert_details.cert_chain().iter().cloned().collect(),
+        })
+    }
 }
 
 impl TryFrom<&ServerCertDetails> for Certificates {
     type Error = TdnProofError;
 
     fn try_from(cert_details: &ServerCertDetails) -> Result<Self, Self::Error> {
-        if cert_details.cert_chain().is_empty() {
-            return Err(TdnProofError::CertificateError);
-        }
-
-        let cert_chain = cert_details.cert_chain();
-        Ok(Self {
-            end_entity: cert_chain[0].clone(),
-            intermediates: cert_details.cert_chain().iter().skip(1).cloned().collect(),
-        })
+        Certificates::new(cert_details)
     }
 }
 
@@ -250,13 +258,9 @@ impl ToTdnStandardSerialized for Certificates {
     fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry {
         let mut map = BTreeMap::new();
         map.insert(
-            "endEntity",
-            TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&self.end_entity.0)),
-        );
-        map.insert(
-            "intermediates",
+            "certsServer",
             TdnStandardSerializedEntry::Array(
-                self.intermediates
+                self.certs_server
                     .iter()
                     .map(|cert| TdnStandardSerializedEntry::String(BASE64_STANDARD.encode(&cert.0)))
                     .collect(),
