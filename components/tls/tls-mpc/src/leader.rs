@@ -737,6 +737,11 @@ impl Backend for MpcTlsLeader {
                 } else {
                     None
                 },
+                signature_kx_params_server: if self.tdn_mode {
+                    Some(server_kx_details.kx_sig().sig.0.clone())
+                } else {
+                    None
+                },
             }))
             .await
             .map_err(|e| BackendError::InternalError(e.to_string()))?;

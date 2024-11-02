@@ -80,6 +80,8 @@ pub struct MpcTlsFollowerData {
     pub priv_key_session_notary: Option<Vec<u8>>,
     /// Key exchange params. Only present and necessary in TDN mode.
     pub kx_params: Option<Vec<u8>>,
+    /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+    pub signature_kx_params_server: Option<Vec<u8>>,
     /// Ciphertext of the application data fromt the server collected in this session. Only present and necessary in TDN mode.
     pub ciphertext_application_data_server: Option<Vec<u8>>,
 }
@@ -102,6 +104,7 @@ impl ludi::Actor for MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
         } = {
             if !self.state.is_closed() {
@@ -149,6 +152,7 @@ impl ludi::Actor for MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
         })
     }
@@ -367,6 +371,7 @@ impl MpcTlsFollower {
         random_client: Option<Vec<u8>>,
         random_server: Option<Vec<u8>>,
         kx_params: Option<Vec<u8>>,
+        signature_kx_params_server: Option<Vec<u8>>,
     ) -> Result<(), MpcTlsError> {
         if self.tdn_mode {
             if random_client.is_none() {
@@ -385,6 +390,12 @@ impl MpcTlsFollower {
                 return Err(MpcTlsError::new(
                     Kind::PeerMisbehaved,
                     "kx_params is missing in TDN mode",
+                ));
+            }
+            if signature_kx_params_server.is_none() {
+                return Err(MpcTlsError::new(
+                    Kind::PeerMisbehaved,
+                    "signature_kx_params_server is missing in TDN mode",
                 ));
             }
         }
@@ -427,6 +438,11 @@ impl MpcTlsFollower {
                 None
             },
             kx_params: if self.tdn_mode { kx_params } else { None },
+            signature_kx_params_server: if self.tdn_mode {
+                signature_kx_params_server
+            } else {
+                None
+            },
         });
 
         Ok(())
@@ -444,6 +460,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
         } = self.state.take().try_into_ke()?;
 
         self.prf.compute_client_finished_vd_blind().await?;
@@ -455,6 +472,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
         });
 
         Ok(())
@@ -472,6 +490,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
         } = self.state.take().try_into_sf()?;
 
         self.prf.compute_server_finished_vd_blind().await?;
@@ -484,6 +503,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server: Default::default(),
         });
 
@@ -502,6 +522,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
         } = self.state.take().try_into_cf()?;
 
         self.encrypter
@@ -515,6 +536,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
         });
 
         Ok(())
@@ -690,6 +712,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
         } = self.state.take().try_into_active()?;
 
@@ -707,6 +730,7 @@ impl MpcTlsFollower {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
         });
 
@@ -744,6 +768,7 @@ impl MpcTlsFollower {
         server_random: Option<Vec<u8>>,
         client_random: Option<Vec<u8>>,
         kx_params: Option<Vec<u8>>,
+        signature_kx_params_server: Option<Vec<u8>>,
     ) {
         ctx.try_or_stop(|_| {
             self.compute_key_exchange(
@@ -751,6 +776,7 @@ impl MpcTlsFollower {
                 server_random,
                 client_random,
                 kx_params,
+                signature_kx_params_server,
             )
         })
         .await;
@@ -852,6 +878,8 @@ mod state {
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
         /// Key exchange params. Only present and necessary in TDN mode.
         pub(super) kx_params: Option<Vec<u8>>,
+        /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+        pub(super) signature_kx_params_server: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -866,6 +894,8 @@ mod state {
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
         /// Key exchange params. Only present and necessary in TDN mode.
         pub(super) kx_params: Option<Vec<u8>>,
+        /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+        pub(super) signature_kx_params_server: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -880,6 +910,8 @@ mod state {
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
         /// Key exchange params. Only present and necessary in TDN mode.
         pub(super) kx_params: Option<Vec<u8>>,
+        /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+        pub(super) signature_kx_params_server: Option<Vec<u8>>,
     }
 
     #[derive(Debug)]
@@ -899,6 +931,8 @@ mod state {
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
         /// Key exchange params. Only present and necessary in TDN mode.
         pub(super) kx_params: Option<Vec<u8>>,
+        /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+        pub(super) signature_kx_params_server: Option<Vec<u8>>,
         /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
         pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }
@@ -915,6 +949,8 @@ mod state {
         pub(super) priv_key_session_notary: Option<Vec<u8>>,
         /// Key exchange params. Only present and necessary in TDN mode.
         pub(super) kx_params: Option<Vec<u8>>,
+        /// The signature of the key exchange params from the server. Only present and necessary in TDN mode.
+        pub(super) signature_kx_params_server: Option<Vec<u8>>,
         /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
         pub(super) ciphertext_application_data_server: Option<Vec<u8>>,
     }

@@ -58,7 +58,7 @@ pub struct TdnSessionData {
     /// Key exchange params.
     pub kx_params: Vec<u8>,
     /// Server's signature on the key exchange params.
-    pub signature_kx_params: Vec<u8>,
+    pub signature_kx_params_server: Vec<u8>,
     /// Ciphertext of the application data from the server collected in this session.
     pub ciphertext_application_data_server: Vec<u8>,
     /// Handshake commitment.

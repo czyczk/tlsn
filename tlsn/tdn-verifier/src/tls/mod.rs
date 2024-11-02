@@ -191,6 +191,7 @@ impl TdnVerifier<state::Setup> {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
         } = futures::select! {
             res = mpc_fut => {
@@ -222,6 +223,8 @@ impl TdnVerifier<state::Setup> {
         let priv_key_session_notary =
             priv_key_session_notary.expect("priv_key_session_notary is not set");
         let kx_params = kx_params.expect("kx_params is not set");
+        let signature_kx_params_server =
+            signature_kx_params_server.expect("signature_kx_params_server is not set");
         let ciphertext_application_data_server = ciphertext_application_data_server
             .expect("ciphertext_application_data_server is not set");
 
@@ -254,6 +257,7 @@ impl TdnVerifier<state::Setup> {
             random_server,
             priv_key_session_notary,
             kx_params,
+            signature_kx_params_server,
             ciphertext_application_data_server,
             commitment_handshake: handshake_commitment.as_bytes().to_vec(),
         };

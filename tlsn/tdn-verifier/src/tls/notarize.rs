@@ -130,7 +130,7 @@ impl TdnVerifier<Notarize> {
                             .map_err(|e| TdnVerifierError::PublicKeyError(e.to_string()))?
                             .to_bytes(),
                         kx_params: tdn_session_data.kx_params,
-                        signature_kx_params_server: tdn_session_data.signature_kx_params,
+                        signature_kx_params_server: tdn_session_data.signature_kx_params_server,
                     },
                     certificates,
                 },
