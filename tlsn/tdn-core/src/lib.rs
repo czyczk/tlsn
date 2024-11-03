@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use alloy::dyn_abi::DynSolValue;
 use serde::Serialize;
 
 pub mod crypto;
@@ -18,6 +19,13 @@ pub mod sig;
 
 // Re-export the `signature` crate (and select types)
 pub use signature::Result as SignatureResult;
+
+#[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Failed to serialize into ABI encodable: {0}")]
+    AbiSerializationError(String),
+}
 
 /// Represents an entry in the serialization result using [`ToTdnStandardSerialized`].
 #[derive(Serialize)]
@@ -40,4 +48,10 @@ pub trait ToTdnStandardSerialized {
     /// - fields sorted alphabetically
     /// - all Vec<u8> as base64 string
     fn to_tdn_standard_serialized(&self) -> TdnStandardSerializedEntry;
+}
+
+/// A trait for types that can be serialized to ABI encodable.
+pub trait ToAbiEncodable {
+    /// Serializes to ABI encodable.
+    fn to_abi_encodable(&self) -> Result<DynSolValue, Error>;
 }

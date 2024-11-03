@@ -10,7 +10,7 @@ edition = "2021"
 
 [features]
 default = []
-fixtures = ["dep:hex"]
+fixtures = []
 
 [dependencies]
 tlsn-tls-core = { workspace = true, features = ["serde"] }
@@ -27,7 +27,7 @@ p256 = { workspace = true, features = ["serde"] }
 webpki-roots.workspace = true
 rs_merkle.workspace = true
 rstest = { workspace = true, optional = true }
-hex = { workspace = true, optional = true }
+hex.workspace = true
 bytes = { workspace = true, features = ["serde"] }
 opaque-debug.workspace = true
 
@@ -36,6 +36,7 @@ bimap = { version = "0.6.3", features = ["serde"] }
 web-time.workspace = true
 
 aes-gcm.workspace = true
+alloy.workspace = true
 base64.workspace = true
 blake3.workspace = true
 hkdf.workspace = true

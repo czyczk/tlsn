@@ -1,5 +1,7 @@
 //! TDN proof types.
 
+pub mod abi;
+
 use crate::{
     session::TdnSessionId, sig::Signature, TdnStandardSerializedEntry, ToTdnStandardSerialized,
 };

@@ -1,5 +1,6 @@
 //! TLS session types.
 
+pub mod abi;
 pub mod ciphertext;
 pub mod keyexchange;
 pub mod settlement;
