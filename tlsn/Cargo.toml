@@ -73,7 +73,7 @@ rstest = "0.17"
 web-time = "0.2"
 
 aes-gcm = "0.10"
-alloy = { version = "0.5", features = ["dyn-abi"] }
+alloy = { version = "0.6", default-features = false, features = ["dyn-abi"] }
 base64 = "0.22"
 blake3 = { version = "1.5", features = ["serde", "traits-preview"] }
 hkdf = "0.12"
