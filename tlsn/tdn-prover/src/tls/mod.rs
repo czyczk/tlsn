@@ -208,6 +208,9 @@ impl TdnProver<state::Setup> {
                         ciphertext_application_data_server: mpc_tls_data
                             .ciphertext_application_data_server
                             .unwrap(),
+                        aad_seq_application_data_server: mpc_tls_data
+                            .aad_seq_application_data_server
+                            .unwrap(),
                     },
                 })
             };
@@ -261,6 +264,7 @@ impl TdnProver<state::TdnClosed> {
                 .state
                 .ciphertext_application_data_server
                 .clone(),
+            aad_seq_application_data_server: self.state.aad_seq_application_data_server,
         }
     }
 

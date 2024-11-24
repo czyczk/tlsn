@@ -786,6 +786,7 @@ impl Backend for MpcTlsLeader {
                     .follower_public_key()
                     .map(|key| PublicKey::from(key)),
                 ciphertext_application_data_server: Default::default(),
+                aad_seq_application_data_server: Default::default(),
             },
         });
 
@@ -856,6 +857,7 @@ impl Backend for MpcTlsLeader {
                 })?;
 
                 data.ciphertext_application_data_server = Some(msg.payload.0.clone());
+                data.aad_seq_application_data_server = Some(self.encrypter.seq() - 1);
             }
 
             self.channel
@@ -927,6 +929,8 @@ pub struct MpcTlsData {
     pub notary_session_public_key: Option<PublicKey>,
     /// Ciphertext of the application data from the server collected in this session. Only present and necessary in TDN mode.
     pub ciphertext_application_data_server: Option<Vec<u8>>,
+    /// AAD sequence number for the application data from the server. Only present and necessary in TDN mode.
+    pub aad_seq_application_data_server: Option<u64>,
 }
 
 mod state {

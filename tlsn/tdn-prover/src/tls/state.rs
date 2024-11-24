@@ -67,6 +67,7 @@ pub struct TdnClosed {
     pub(crate) sig_kx_server: Vec<u8>,
     pub(crate) certificates_server: Certificates,
     pub(crate) ciphertext_application_data_server: Vec<u8>,
+    pub(crate) aad_seq_application_data_server: u64,
 }
 
 opaque_debug::implement!(TdnClosed);

@@ -34,6 +34,11 @@ impl Encrypter {
         }
     }
 
+    /// Returns the sequence number of the next message to be encrypted
+    pub(crate) fn seq(&self) -> u64 {
+        self.seq
+    }
+
     /// Returns the number of application data bytes encrypted
     pub(crate) fn sent_bytes(&self) -> usize {
         self.sent_bytes

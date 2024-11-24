@@ -43,6 +43,8 @@ pub struct TdnCollectLeaderResult {
     pub priv_key_session_prover: Vec<u8>,
     /// Ciphertext of the application data from the server collected in this session.
     pub ciphertext_application_data_server: Vec<u8>,
+    /// AAD sequence number for the application data from the server.
+    pub aad_seq_application_data_server: u64,
 }
 
 /// TDN session data to be stored in Notary. Should be persisted in databases in future iterations.

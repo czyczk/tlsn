@@ -70,7 +70,7 @@ impl TdnProver<Notarize> {
             info!("TDN log: P-send->N: TdnMessage::PubKeyConsumer");
 
             let pub_key_consumer =
-                PublicKey::from(p256::PublicKey::from_sec1_bytes(&pub_key_consumer).map_err(
+                PublicKey::from(k256::PublicKey::from_sec1_bytes(&pub_key_consumer).map_err(
                     |e| ProverError::NotarizationError(format!("Invalid public key: {}", e)),
                 )?);
             channel

@@ -49,6 +49,7 @@ tracing = { workspace = true, optional = true }
 
 web-time.workspace = true
 
+k256.workspace = true
 p256.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
